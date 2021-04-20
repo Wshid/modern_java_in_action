@@ -393,3 +393,103 @@ boolean|(List<String> list) -> list.isEmpty()|Predicate<List<String>>
   // Consumer는 void 반환 값
   Consumer<String> b = s -> list.add(s);
   ```
+
+## 3.6. 메서드 참조
+- **메서드 참조**를 이용하여 **기존의 메서드 정의**를 재활용하여 **람다**처럼 전달 가능
+- 때로는 **람다 표현식**보다 가독성이 좋음
+- 예시
+  ```java
+  // AS-IS
+  inventory.sort(Apple a1, Apple a2) -> a1.getWeight().compareTo(a2.getWeight());
+
+  // TO-BE
+  inventory.sort(comparing(Apple::getWeight)) // 메서드 참조 활용
+  ```
+
+### 3.6.1. 요약
+- 메서드 참조 : 특정 메서드만을 호출하는 **람다의 축약형**
+- 가독성이 높음
+- `::`를 활용하여 사용 가능
+- 예시
+  ```java
+  Apple::getWieght // (Apple apple) -> apple.getWeight()
+  Thread.currentTrhead()::dumpStack // () -> Thread.currentThread().dumpStack() 
+  String::substring // (str, i) -> str.substring(i)
+  System.out::println // (String s) -> System.out.println(s) 
+  this::isValidName // (String s) -> this.isValidName(s)
+  ```
+
+#### 메서드 참조를 만드는 방법(3)
+- 정적 메서드 참조
+  - `Integer::parseInt`
+- 다양한 형식의 인스턴스 메서드 참조
+  - `String::length`
+- 기존 객체의 인스턴스 메서드 참조
+  - `expensiveTransaction::getValue`
+- 예시
+  ```java
+  private boolean isValidName(String string) {
+    return Character.isUpperCase(string.charAt(0));
+  }
+
+  // 활용 방법
+  filter(words, this::isValidName)
+  ```
+- `생성자`, `배열 생성자`, `super` 호출등에 활용할 수 있는 참조 존재
+- 예시2
+  ```java
+  List<String> str = Arrays.asList("a", "b", "A", "B");
+  str.sort((s1, s2) -> s1.compreToIgnoreCase(s2));
+
+  // 메서드 참조 사용
+  str.sort(String::compareToIgnoreCase);
+  ```
+- 컴파일러는 람다 표현식의 형식을 검사하던 방식과 비슷한 과정으로
+  - **메서드 참조**가, 주어진 **함수형 인터페이스**와 호환하는지 확인
+- 메서드 참조는 **컨텍스트의 형식**과 일치해야 함
+
+#### 3.6.2. 생성자 참조
+- `ClassName::new`와 같이
+  - `new`키워드를 활용하여 기존 생성자의 참조 생성 가능
+  - **정적 메서드**의 참조와 유사
+- 예시
+  ```java
+  Supplier<Apple> c1 = Apple::new; // Supplier<Apple> c1 = () -> new Apple();
+  Apple a1 = c1.get(); // Supplier::get을 활용하여 신규 apple 객체 생성 가능
+
+  Function<Integer, Apple> c2 = Apple::new; // Function<Integer, Apple> c2 = (weight) -> new Apple(weight);
+  Apple a2 = c2.apply(110); // 인수를 받아 생성하는 방식
+  ```
+- 예시2
+  ```java
+  List<Integer> weights = Arrays.asList(7, 3, 4, 10);
+  List<Apple> apples = map(weights, Apple::new); // map의 인자로 생성자 참조 전달
+  public List<Apple> map(List<Integer> list, Function<Integer, Apple> f) {
+    List<Apple> result = new ArrayList<>();
+    for(Integer i:list) {
+      result.add(f.apply(i));
+    }
+    return result;
+  }
+  ```
+- 두 인수를 갖는 생성자 -> `BiFunction` 인터페이스 활용
+  ```java
+  BiFunction<Color, Integer, Apple> c3 = Apple::new; // BiFunction<String, Integer, Apple> c3 = (coloe, weight) -> new Apple(color, weight);
+  Apple a3 = c3.apply(GREEN, 110);
+  ```
+- **인스턴스화**하지 않고도, **생성자**에 접근할 수 있는 기능을
+  - 다양한 상황에 응용할 수 있음
+  - 예시
+    - `Map`으로 **생성자**와 **문자열값**을 관련 짓기
+      ```java
+      static Map<String, Function<Integer, Fruit>> map = new HashMap<>();
+      static {
+        map.put("apple", Apple::new);
+        map.put("orange", Orange::new);
+      }
+
+      public static Fruit giveMeFruit(String fruit, Integer weight) {
+        return map.get(fruit.toLowerCase()) // map에서 Function<Integer, Fruit>을 얻음
+                  .apply(weight); // 이후 생성
+      }
+      ```
