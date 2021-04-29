@@ -357,7 +357,7 @@ boolean|(List<String> list) -> list.isEmpty()|Predicate<List<String>>
   - 순서
     - `filter`메서드의 선언 확인
     - `filter` 메서드는 두번째 파라미터로 `Predicate<Apple>`의 형식(대상 형식) 기대
-    - `Predicate<Apple>`은 `test`라는 **한 개의 추상 메서드**를 정의하는 **함수형 인터페이스
+    - `Predicate<Apple>`은 `test`라는 **한 개의 추상 메서드**를 정의하는 **함수형 인터페이스**
     - `test`메서드는 `Apple`을 받아 `boolean`을 반환하는 **함수 디스크립터**를 묘사
     - `filter`메서드로 전달된 인수는 이와 같은 요구사항 만족
   - 위 예제에서, `Apple`을 인수로 받아 `boolean`을 반환하므로 유효한 코드
@@ -493,3 +493,220 @@ boolean|(List<String> list) -> list.isEmpty()|Predicate<List<String>>
                   .apply(weight); // 이후 생성
       }
       ```
+
+## 3.7. 람다, 메서드 참조 활용하기
+- 사과 리스트 정렬 문제 해결하기
+  - `동작 파라미터화`, `익명 클래스`, `람다 표현식`, `메서드 참조`등을 활용
+
+### 3.7.1. 1단계 : 코드 전달
+- java 8의 `List API`에서 `sort`를 제공함
+  ```java
+  void sort(Comparator<? super E> c)
+  ```
+- `Comparator` 객체를 인수로 받아, 두 사과를 비교
+- 객체 안에 동작을 포함시키는 방식으로 다양한 전략 전달
+  - `sort`의 동작은 **파라미터화** 되었다고 함
+- 코드
+  ```java
+  public class AppleComparator implements Comparator<Apple> {
+    public int compare(Apple a1, Apple a2) {
+      return a1.getWeight().compareTo(a2.getWeight());
+    }
+  }
+  inventory.sort(new AppleComparator());
+  ```
+
+### 3.7.2. 2단계 : 익명 클래스 사용
+- 코드
+  ```java
+  inventory.sort(new Comparator<Apple>() {
+    public int compare(Apple a1, Apple a2) {
+      return a1.getWeight().compareTo(a2.getWeight());
+    }
+  });
+  ```
+
+### 3.7.3. 3단계 : 람다 표현식 사용
+- **함수형 인터페이스**를 기대하는 곳 어디에서나 **람다 표현식** 사용 가능
+  - 추상 메서드를 정의하는 **인터페이스**
+- 추상 메서드의 시그니처(**함수 디스크립터**)는
+  - 람다 표현식의 **시그니처**를 정의
+- `Comparator`의 함수 디스크립터는 `(T, T) -> int`
+- 코드
+  ```java
+  inventory.sort((Apple a1, Apple a2) -> a1.getWeight().compareTo(a2.getWeight()));
+  ```
+- 자바 컴파일러는, 람다 표현식이 사용된 **컨텍스트**를 활용하여
+  - 람다의 **파라미터 형식** 추론
+  ```java
+  inventory.sort((a1, a2) -> a1.getWeight().compareTo(a2.getWeight()));
+  ```
+- `Comparator`는 `Comparable`키를 추출하여
+  - `Comparator` 객체로 만드는 `Function` 함수를 인수로 받는 정적 메서드 `comparing`을 포함
+- 람다 표현식은 사과를 비교하는데 **사용할 키**를 어떻게 추출할지 지정하는 **한개의 인수**만 포함
+  ```java
+  Comparator<Apple> c = Comparator.comparing((Apple a) -> a.getWeight());
+
+  // 코드 간소화 최종
+  import static java.util.Comparator.comparing;
+  inventory.sort(comparing(apple -> apple.getWeight()));
+  ```
+
+### 3.7.4. 4단계 : 메서드 참조 활용
+- 코드
+  ```java
+  inventory.sort(comparing(Apple::getWeight));
+  ```
+
+## 3.8. 람다 표현식을 조합할 수 있는 유용한 메서드
+- `java 8`의 몇몇 함수형 인터페이스는
+  - 다양한 **유틸리티 메서드**를 포함
+- `Comparator`, `Function`, `Predicate` 같은 **함수형 인터페이스**는
+  - **람다 표현식**을 조합할 수 있도록 **유틸리티 메서드**를 제공
+- 간단히 여러 개의 **람다 표현식**을 조합하여,
+  - 복잡한 **람다 표현식**을 만들 수 있음
+  - 예시로
+    - 두 `predicate`를 조합하여, 두 `predicate` `or` 연산을 수행하는 커다란 predicate를 수행할 수 있음
+- 한 함수의 결과가, 다른 함수의 **입력**이 되도록 조합 가능
+- **디폴트 메서드**
+  - 추상 메서드가 아니기 때문에, 함수형 인터페이스의 정의를 벗어나지 않음
+
+### 3.8.1. Comparator 조합
+- 정적 메서드 `Comparator.comparing`을 이용하여, 비교에 사용할 키를 추출하는
+  - `Function` 기반의 `Comparator`를 반환할 수 있음
+  ```java
+  Comparator<Apple> c = Comparator.comparing(Apple::getWeight);
+  ```
+
+#### 역정렬
+- `reversed`를 사용하여 역정렬 가능
+  ```java
+  inventory.sort(comparing(Apple::getWeight).reversed()); // 무게를 기준, desc
+  ```
+
+#### Comparator 연결
+- 비교 결과를 다듬기(다중 정렬 조건에 대해)
+- `thenComparing` 메서드로, 두번째 비교자를 만들 수 있음
+  - `comparing` 메서드 같이, 함수를 인자로 받아 **첫 번째 비교자**를 이용하여
+  - 두 객체가 같다고 판단되면, 두 번째 비교자에 **객체 전달**
+- 코드
+  ```java
+  inventory.sort(comparing(Apple::getWeight)
+    .reversed()
+    .thenComparing(Apple::getCountry));
+  ```
+
+### 3.8.2. Predicate 조합
+- `negate`, `and`, `or` 세가지 메서드 제공
+  ```java
+  Predicate<Apple> notRedApple = redApple.negate(); // redApple의 결과를 반전한 객체 얻기
+
+  Predicate<Apple> redAndHeavyApple = redApple.and(apple -> apple.getWeight() > 150); // 빨간색이면서, 무거운 사과 선택
+
+  // 빨간색이면서 무거운 사과 또는 녹색 사과
+  Predicate<Apple> redAndHeavyAppleOrGreen = redApple.and(apple -> apple.getWeight() > 150)
+                                                      .or(apple -> GREEN.equals(a.getColor()));
+  ```
+- 코드 자체가 직관적, `왼쪽 -> 오른쪽`으로 연결됨
+  - `a.or(b).and(c) -> (a || b) && c`
+
+### 3.8.3. Function 조합
+- `Function` 인터페이스에서 제공하는 **람다 표현식**도 조합 가능
+- `Function` 인스턴스를 반환하는 `andThen`, `compose` 두 가지 디폴트 메서드를 제공
+- `andThen` 메서드는 **주어진 함수**를 먼저 적용한 결과를
+  - 다른 함수의 **입력**으로 전달하는 함수 반환
+  - 코드
+    ```java
+    Function<Integer, Integer> f = x -> x + 1;
+    Function<Integer, Interger> g = x -> x + 2;
+    Function<Integer, Integer> h = f.andThen(g); // 수학적으로 g(f(x))
+    int result = h.apply(1); // 4
+    ```
+- `compose` **인수**로 주어진 함수를 먼저 실행한 이후,
+  - 그 결과를 **외부 함수**의 **인수**로 제공
+  ```java
+  Function<Integer, Integer> f = x -> x + 1;
+  Function<Integer, Interger> g = x -> x + 2;
+  Function<Integer, Integer> h = f.compose(g); // f(g(x))
+  int result = h.apply(1); // 3
+  ```
+
+## 3.9. 비슷한 수학적 개념
+- **람다 표현식**과 **함수 전달**에서 수학적 개념
+
+### 3.9.1. 적분
+- 수학적 함수 계산?
+  ```bash
+  f(x) = x + 10
+  ```
+  - 위 함수의 `3 ~ 7`사이의 값을 적분한다면 아래와 같이 표현 가능
+  ```bash
+  integrate(3, 7)(x +10) dx
+  ```
+- 위 공식을 자바로 풀어낸다면?
+  ```java
+  integrate(f, 3, 7);
+
+  integrate(x + 10, 3, 7)
+  ```
+  - 위와 같이 표현은 가능하나, `x`의 범위가 불분명하며
+    - `f`를 전달하는 것이 아닌, `x+10`을 전달하기 때문에, 잘못된 식 
+
+### 3.9.2. java 8 lambda로 연결
+- `(double x) -> x + 10`와 같은 **람다 표현식** 사용 가능
+  ```java
+  integrate((double x) -> x + 10, 3, 7);
+  integrate((double x) -> f(x), 3, 7);
+
+  // C가 정적 메서드 f를 포함하는 클래스라면, 메서드 참조를 사용해 표현
+  integrate(c::f, 3, 7);
+  ```
+- `ingegrate` 메서드 구현하기
+  - `f`를 선형 함수(직선)이라 가정하면, 다음과 같은 식 도출
+    ```java
+    // pseudo code
+    public double integrate((double -> double) f, double a, double b) {
+      return (f(a) + f(b)) * (b-a) /2.0
+    }
+    ```
+  - 함수형 인터페이스(`DoubleFunction`)을 기대하는 컨텍스트에서만 람다 표현식이 가능하기 때문에 다음과 같이 표현
+    ```java
+    public doulbe integrate(DoubleFunction<Double> f, double a, double b) {
+      return (f.apply(a) + f.apply(b)) * (b - a) / 2.0);
+    }
+    ```
+  - 또는 `DoubleUnaryOperator`를 사용해도, 결과를 박싱할 필요가 없음
+    ```java
+    public doulbe integrate(DoubleUnaryOperator f, double a, double b) {
+      return (f.applyAsDouble(a) + f.applyAsDouble(b)) * (b-a) / 2.0;
+    }
+    ```
+    - 수학처럼 `f(a)`로 표현할 수 없으며 `f.apply(a)`와 같이 구현
+      - 자바가 진정으로 함수를 허용하지 않고, 모든 것을 **객체**로 여기기 때문
+
+## 3.10. 마치며
+- **람다 표현식**은 **익명 함수**의 일종
+  - 이름은 없지만 다음을 가짐
+    - 파라미터 리스트
+    - 바디
+    - 반환
+  - **예외**를 던질 수 있음
+- **함수형 인터페이스**는 하나의 **추상 메서드**만을 정의하는 **인터페이스**
+  - 이를 기대하는 곳에서만 **람다 표현식** 사용 가능
+- **람다 표현식**을 이용해서 **함수형 인터페이스**의 **추상 메서드**를
+  - 즉석으로 제공할 수 있으며
+  - 람다 표현식 **전체**가 **함수형 인터페이스**의 **인스턴스**로 취급
+- `java.util.Function`에는 다음과 같은 **함수형 인터페이스** 포함
+  - `Predicate<T>`
+  - `Function<T, R>`
+  - `Supplier<T>`
+  - `Consumer<T>`
+  - `BinaryOperator<T>`
+  - ...
+- java 8에서는 `Predicate<T>`와 `Function<T, R>` 같은 **제네릭 함수형 인터페이스**와 관련한 박싱 동작을 피할 수 있는
+  - `IntPredicate`, `IntToLongFunction`과 같은 **기본형 특화 인터페이스**도 제공
+- **실행 어라운드 패턴**(자원 할당, 자원 정리, 코드 중간에 실행하는 메서드)을 **람다**와 활용하면
+  - 유연성과 재사용성을 추가로 얻을 수 있음
+- 람다 표현식의 **기대 형식**(type expected)을 **대상 형식**(target type)이라고 함
+- `Comparator`, `Predicate`, `Function`과 같은 **함수형 인터페이스**는
+  - **람다 표현식**을 조합할 수 있는 다양한 **디폴트 메서드**를 제공
