@@ -104,3 +104,158 @@
                           .skip(2)
                           .collect(toList());
   ```
+
+## 5.3. 매핑
+- 특정 객체에서 특정 데이터를 선택하는 작업
+  - 데이터 처리 과정에서 자주 수행되는 연산
+  - SQL 테이블에서 특정 열만 선택할 수 있음
+  - `map`과 `flapMap`메서드가 그 역할을 함
+
+### 5.3.1. 스트림의 각 요소에 함수 적용하기
+- 스트림은 **함수**를 인수로 받는 `map` 메서드 지원
+  - 각 요소에 적용되며, 함수를 적용한 결과가 새로운 요소로 매핑됨
+  - translation에 가까운 `mapping`이라는 표현
+- 예시
+  ```java
+  List<Integer> dishNames = menu.stream()
+                               .map(Dish::getName)
+                               .map(String::length)
+                               .collect(toList());
+  ```
+  - 출력 스트림은 `Stream<Integer>` 형식을 가짐
+  - `map`간의 체인 연산도 가능
+
+### 5.3.2. 스트림 평면화
+- 리스트의 데이터를 각 요소로 분해하는 잘못된 예시
+  ```java
+  String[] words = ["Hello", "World"];
+  // 문자단위로 차원이 내려가지 않아, 원하는대로 동작하지 않음
+  words.stream()
+       .map(word -> word.split(""))
+       .distinct()
+       .collect(toList());
+  ```
+
+#### Map과 Arrays.stream의 활용
+- 배열 스트림 대신 **문자열 스트림**이 필요한 상황
+  - 문자열을 받아 스트림을 만드는 `Arrays.stream()`메서드 존재
+    ```java
+    String[] arrayOfWords = ["GoodBye", "World"];
+    Stream<String> streamOfwords = Arrays.sstream(arrayOfWords);
+
+    // 위 파이프라인에 `Arrays.stream()`메서드 적용
+    words.stream()
+         .map(word -> word.split("")) // 각 단어를 개별 문자열 배열로 반환
+         .map(Arrays::stream) // 각 배열을 별도의 스트림으로 생성
+         .distinct()
+         .collect(toList());
+    ```
+    - 단, 위 예시에서는 `List<Strean<String>>`이 생성됨
+- 문제를 해결하려면
+  - 각 단어를 **개별 문자열**로 이루어진 배열로 만든 다음에
+  - 각 배열을 별도의 **스트림**으로 만들어야 함
+
+#### flapMap 사용
+- 코드
+  ```java
+  List<String> uniqueCharacters = 
+      words.stream()
+           .map(word -> word.split("")) // 각 단어를 개별 문자를 포함하는 배열로 반환
+           .flatMap(Arrays::stream) // 생성된 스트림을 하나의 스트림으로 평면화
+           .distinct()
+           .collect(toList());
+  ```
+- `flatMap`은 각 배열을
+  - **스트림**이 아니라 **스트림의 콘텐츠**로 매핑
+  - 하나의 **평면화된 스트림**을 반환
+
+## 5.4. 검색과 매칭
+- 특정 속성이 **데이터 집합에 있는지 여부**를 검색하는 데이터 처리도 자주 사용
+- `allMatch, anyMatch, noneMatch, findFirst, findAny`등의 다양한 **유틸리티 메서드** 제공
+
+
+### 5.4.1. 프레디케이트가 적어도 한 요소와 일치하는지 확인
+- `predicate`가 주어진 스트림에서 **적어도 한 요소와 일치**하는지 확인할 때
+  - `anyMatch`를 사용
+- 예시
+  ```java
+  // menu에 채식요리가 있는지 확인 
+  if(menu.stream().anyMatch(Dish::isVegetarian)) {
+    System.out.println("The menu is (somewhat) vegetarian friendly!!");
+  }
+  ```
+
+### 5.4.2. 프레디케이트가 모든 요소와 일치하는지 검사
+- 코드
+  ```java
+  boolean isHealty = menu.stream().allMatch(dish -> dish.getCalories() < 1000);
+  ```
+
+#### NoneMatch
+- `allMatch`와 반대연산 수행
+- 주어진 프레디케이트와 일치하는 요소가 **없는지** 확인
+- 코드
+  ```java
+  boolean isHealty = menu.stream().allMatch(dish -> dish.getCalories() < 1000);
+  ```
+- `anyMatch, allMatch, noneMatch` 세 메서드는
+  - 스트림 **쇼트서킷** 기법
+  - 즉 자바의 `&&`와 `||`와 같은 연산을 활용
+
+#### 쇼트서킷 평가
+- 전체 스트림을 처리하지 않았더라도 결과를 반환할 수 있음
+- 전체 `boolean`식이 `and`로 연접되어 있을 때, 하나라도 `false`가 나오면 거짓
+- `allMatch, noneMatch, findFirst, findAny`등의 연산은
+  - 모든 스트림의 요소를 처리하지 않고도, 결과 반환 가능
+- 마찬가지로, 스트림의 모든 요소를 처리할 필요 없이
+  - 주어진 크기의 스트림을 생성하는 `limit`도 쇼트서킷 연산
+- **무한한 요소를 가진 스트림**을
+  - **유한한 크기**로 줄일 수 있는 유용한 연산
+
+### 5.4.3. 요소 검색
+- `findAny` 메서드, 현재 스트림에서 임의의 요소 반환
+  ```java
+  Optional<Dish> dish = menu.stream().filter(Dish::isVegeterian).findAny();
+  ```
+  - 내부적으로 단일 과정을 실행할 수 있도록 최적화
+  - **쇼트서킷**을 이용하여, 결과를 찾는 즉시 종료
+
+#### Optional이란?
+- 값의 **존재**나 **부재**를 표현하는 컨테이너 클래스
+- `findAny`의 경우 아무 요소도 반환할 수 있는데,
+  - 이는 `null`이 반환될 경우 쉽게 에러 발생 가능성 존재
+- 지원하는 메서드
+  - `isPresent()`
+    - `Optional`이 값을 포함하면 `true`, 아닐경우 `false`
+  - `ifPresent(Consumer<T> block)`
+    - 값이 있으면 **주어진 블록** 실행
+    - `Consumer` 함수형 인터페이스를 통하여
+      - `T`형식의 인수를 받아 `void`를 반환
+  - `T get()`
+    - 값이 존재하면 반환, 없을 경우 `NoSuchElementException` 발생
+  - `T orElse(T other)`
+    - 값이 있으면 값을 반환, 없으면 기본값 반환
+- 사용 예시
+  ```java
+  menu.stream().filter(Dish::isVegeterian)
+               .findAny() // Optional<Dish> 반환
+               .ifPresent(dish -> System.out.println(dish.getName()));
+  ```
+
+### 5.4.4. 첫번째 요소 찾기
+- 리스트 또는 정렬된 연속 데이터부터 생성된 스트림 처럼
+  - 일부 스트림에는 **논리적인 아이템 순서**가 정해져 있을 수 있음
+- 이런 스트림에서 첫 요소를 찾으려면?
+- 예시
+  ```java
+  // 숫자 리스트에서 3으로 나누어 떨어지는 첫번째 제곱값을 반환하는 예시
+  List<Integer> someNumbers = Arrays.asList(1,2,3,4,5);
+  Optional<Integer> firstSquareDivisibleByThree = someNumbers.stream()
+                                                             .map(n -> n*n)
+                                                             .filter(n -> n % 3 == 0)
+                                                             .findFirst();
+  ```
+
+#### findFirst와 findAny의 사용처
+- **병렬 실행**에서는 첫번째 요소를 찾기 어려움
+- 반환 순서가 상관이 없다면, **병렬 스트림**에서는 `findAny`를 사용할 것
