@@ -259,3 +259,81 @@
 #### findFirst와 findAny의 사용처
 - **병렬 실행**에서는 첫번째 요소를 찾기 어려움
 - 반환 순서가 상관이 없다면, **병렬 스트림**에서는 `findAny`를 사용할 것
+
+## 5. 리듀싱
+- 최종 연산으로 `boolean`(allMatch), `void`(forEach), `Optional`(findAny)를 반환
+- 또한 `collect`로 모든 스트림의 요소를 리스트로 모으는 방법도 존재
+- `reduce`연산
+  - `Integer`와 같은 결과가 나올때까지, 스트림의 모든 요소를 반복적으로 처리
+  - 스트림 요소를 처리해서 **값으로 도출**
+  - `fold`라는 의미로도 부름
+
+### 5.5.1 요소의 합
+- 반복된 패턴을 추상화하는 코드
+  ```java
+  int sum = numbers.stream().reduce(0, (a, b) -> a + b);
+  ```
+  - 초기값 `0`
+  - 두 요소를 조합하여 새로운 값을 만드는 `BinaryOperator<T>` 사용
+  ```java
+  int product = numbers.stream().reduce(1, (a, b) -> a * b);
+  ```
+- 계속하여 누적값(`accumulated value`)를 만들어감
+- 메서드 참조 예시
+  ```java
+  int sum = numbers.stream().reduce(0, Integer::sum);
+  ```
+
+#### 초기값 없음
+- 초기값이 없는 `reduce`도 존재하나, `Optional`을 반환
+  ```java
+  Optional<Integer> sum = numbers.stream().reduce((a,b) -> (a+b));
+  ```
+  - 만약 스트림에 아무 요소도 없을 때, 반환할 값이 없기 때문
+
+### 5.5.2 최댓값과 최소값
+- `reduce`의 두가지 인자
+  - 초깃값
+  - 스트림의 두 요소를 합쳐 하나의 값으로 만들때 사용하는 람다
+- 예시
+  ```java
+  Optional<Integer> max = numbers.stream().reduce(Integer::max);
+  Optional<Integer> min = numbers.stream().reduce(Integer::min);
+  // Integer::min 대신 (x,y) -> x<y?x:y 도 ㅅ ㅏ용 가능
+  ```
+
+#### reduce 메서드의 장점과 병렬화
+- 단계적 반복으로의 합계와 `reduce`를 이용한 합계의 차이
+- `reduce`를 사용하게 되면
+  - **내부 반복**이 추상화 되면서
+  - 내부 구현에서 **병렬**로 `reduce`를 실행할 수 있음
+- 반복적인 합계에서는 `sum`을 사용해야하기 때문에, **쉽게 병렬화 하기 어려움**
+  - 강제적으로 동기화시키더라도,
+  - 결국 병렬화로 얻어야할 이득이
+    - 스레드 간의 소모적인 경쟁 때문에 상쇄
+- 해당 작업을 **병렬화**하려면
+  - 입력을 분할하여, 불할된 입력을 더한 후, 더한 값을 합쳐야 함
+- `fork/join framework`를 활용하면 가능함
+- 병렬화한 코드
+  ```java
+  int sum = numbers.parallelStream().reduce(0, Integer::sum);
+  ```
+
+#### 스트림 연산 : 상태 없음과 상태 있음
+- 스트림에서 `stream`메서드를
+  - `parallelStream`으로 바꾸는 것만으로 **병렬성**확보 가능
+- 각각의 연산은 **내부적인 상태**를 고려해야 함
+- `map, filter` 등은
+  - 입력 스트림에서 각 요소를 받아 `0`또는 **결과**를 **출력 스트림**으로 보낸다
+  - 따라서 보통 **상태가 없는** 연산, `stateless operation`
+- `reduce, sum, max`연산은 결과를 누적할 **내부 상태**가 필요
+  - 내부 상태의 크기는, 요소 수와 관계 없이 한정적(`bounded`)
+- 반면 `sorted`와 `distinct` 같은 연산은
+  - `filter, map`처럼 스트림을 입력으로 받아, 다른 스트림을 출력하는 것처럼 보이지만, 아님
+  - 요소를 **정렬**하거나 **중복 제거**하려면, **과거 이력**을 알고 있어야 함
+  - 예시로 어떤 요소를 출력 스트림으로 추가시
+    - 모든 요소가 **버퍼에 추가되어 있어야 함**
+  - 연산을 수행하는데 필요한 **저장소 크기**는 정해져 있지 않음
+  - 따라서, 데이터 스트림의 크기가 크거나, 무한이라면
+    - **문제 발생 가능**
+  - 이러한 연산을 **내부 상태를 갖는 연산**(`stateful operation`)이라 함
