@@ -337,3 +337,174 @@
   - 따라서, 데이터 스트림의 크기가 크거나, 무한이라면
     - **문제 발생 가능**
   - 이러한 연산을 **내부 상태를 갖는 연산**(`stateful operation`)이라 함
+
+## 5.6. 실전 연습
+- 트랜잭션(거래)를 실행하는 거래자 예제
+
+### 5.6.1. 거래자와 트랜잭션
+- `Trader` 리스트와 `Transaction` 리스트를 이용
+  ```java
+  Trader raoul = new Trader("Raoul", "Cambridge");
+  ...
+  List<Transaction> transactions = Arrays.asList(
+    new Transaction(brian, 2011, 300),
+    ...
+  );
+
+  public class Transaction {
+    private final Trader trader;
+    private final int year;
+    private final int value;
+
+    ...
+  }
+  ```
+
+### 5.6.2. 실전 연습 정답
+
+#### CODE.5.1. 2011년에 일어난 모든 트랜잭션을 찾아 오름차순 정렬
+```java
+List<Transaction> tr2011 = transactions.stream()
+                                      .filter(transaction -> transaction.getYear() == 2011)
+                                      .sorted(comparing(Transaction::getValue))
+                                      .collect(toList());
+```
+
+#### CODE.5.2. 거래자가 근무하는 모든 도시를 중복 없이 나열
+```java
+List<String> cities = transactions.stream()
+                                  .map(transaction -> transaction.getTrader().getCity())
+                                  .distinct()
+                                  .collect(toList());
+```
+- `distinct`외에 스트림을 **집합**으로 변환하는 `toSet()`을 사용할 수 있음
+```java
+Set<String> cities = transactions.stream()
+                                  .map(transaction -> transaction.getTrader().getCity())
+                                  .collect(toSet());
+```
+
+#### CODE.5.3. 케임브리지에서 근무하는 모든 거래자를 찾아 이름순 정렬
+```java
+List<Trader> traders = transactions.stream()
+                                    .map(Transaction::getTrader)
+                                    .filter(trader -> trader.getCity().equals("Cambridge"))
+                                    .distinct()
+                                    .sorted(comparing(Trader::getName))
+                                    .collect(toList());
+```
+
+#### CODE.5.4. 모든 거래자의 이름을 알파벳순으로 정렬
+```java
+String traderStr = transactions.stream()
+                                .map(transaction -> transaction.getTrader().getName())
+                                .distinct()
+                                .sorted() // 중복된 이름 제거
+                                .reduce("", (n1, n2) -> n1 + n2);
+```
+- 각 반복과정에서, 모든 문자열을 **반복적으로 연결**하여 새로운 문자열 객체를 만듦
+  - 효율성이 떨어짐
+- `joining`을 활용하여 효율적으로 처리 가능
+  - 내부적으로 `StringBuilder`를 이용
+```java
+String traderStr = transactions.stream()
+                                .map(transaction -> transaction.getTrader().getName())
+                                .distinct()
+                                .sorted()
+                                .collect(joining())
+```
+
+#### CODE.5.5. 밀라노에 거래자가 있는지
+```java
+boolean milanBased = transactions.stream()
+                                  .anyMatch(transaction -> transaction.getTrader().getCity().equals("Milan"));
+```
+
+##### CODE.5.6. 케임브리지에 거주하는 거래자의 모든 트랜잭션 값을 출력하시오
+```java
+transactions.stream()
+            .filter(t -> "Cambridge".equals(t.getTrader().getCity()))
+            .map(Transaction::getValue)
+            .forEach(System.out::println)
+```
+
+#### CODE.5.7. 전체 트랜잭션 중 최댓값은 얼마인가
+```java
+Optional<Integer> highestValue =
+  transactions.stream()
+              .map(Transaction::getValue)
+              .reduce(Integer::max);
+```
+
+#### CODE.5.8. 전체 트랜잭션 중 최솟값은 얼마인가
+```java
+Optional<Transaction> smallestTransaction = 
+                          transactions.stream().reduce((t1, t2) -> t1.getValue() < t2.getValue() ? t1 : t2);
+```
+- 스트림은 **최댓값**이나 **최솟값**을 계산하는 데 사용할 **키**를 지정하는 `Comparator`를 인수로 받는
+  - `min`, `max` 메서드를 제공
+    ```java
+    Optional<Transaction> smallestTransaction =
+                                        transactions.stream().min(comparing(Transaction::getValue));
+    ```
+
+## 5.7. 숫자형 스트림
+- 믹싱 비용이 포함된 코드
+  ```java
+  int calories = menu.stream().map(Dish::getCalories).reduce(0, Integer::sum);
+  ```
+- `map()` 메서드가 `Stream<T>`를 생성하기 때문에, `sum()`을 직접 호출할 수 없음
+  - 스트림의 요소 형식은 `Integer`지만, 인터페이스에는 `sum`메서드가 없음
+- 스트림 API에는 **숫자 스트림**을 효율적으로 처리할 수 있도록 **기본형 특화 스트림**(primitive stream sspecialization)을 제공
+
+### 5.7.1. 기본형 특화 스트림
+- `java 8`에는 세 가지 기본형 특화 스트림을 제공
+  - `IntStream`, `DoubleStream`, `LongStream`
+- 스트림 API는 믹싱 비용을 피할 수 있음
+- 각 인터페이스에는, `sum`, `max`, 숫자 관련 **리듀싱 연산 수행 메서드**를 제공
+- 필요시 다시 **객체 스트림**으로 복원하는 기능도 제공
+- 특화 스트림은 오직
+  - **박싱 과정**에서 일어나는 **효율성**과 연관 됨
+  - 스트림에 추가적인 기능을 제공하진 않음
+
+#### 숫자 스트림으로 매핑
+- `스트림 -> 특화 스트림`으로 변경 시, `mapToInt`, `mapToDouble`, `mapToLong` 세 가지 메서드를 많이 사용
+- `map`과 정확히 같은 기능을 수행하나 `Stream<T>`대신 특화된 스트림 반환
+  ```java
+  int calories = menu.stream() // Stream<Dish>
+                      .mapToInt(Dish::getCalories) // IntStream
+                      .sum();
+  ```
+- `mapToInt` 메서드는
+  - 각 요리에서 **모든 칼로리**를 추출한 다음
+  - `IntStream`을 반환(`Stream<Integer>` 가 아님)
+- `IntStream` 인터페이스에서 제공하는 `sum` 메서드를 이용해서, 칼로리 합계를 계산할 수 있음
+- 스트림이 비어있을 경우 `sum`은 기본값 `0`을 반환
+- `IntStream`은 `min`, `max`, `average` 등 다양한 유틸리티 메서드 제공
+
+#### 객체 스트림으로 복원하기
+- `숫자 스트림 -> 특화되지 않은 스트림`
+- `IntStream::map`의 경우
+  - `int`인수를 받아 `int`를 반환하는 `IntUnaryOperator`를 인수로 받ㄱ음
+  - 정수가 아닌 `Dish`와 같은 다른 값을 변환하려면
+    - **스트림 인터페이스**에 정의된 **일반적인 연산**을 사용해야 함
+    - `boxed` 사용
+- 예시
+  ```java
+  IntStream intStream = menu.stream().mapToInt(Dish::getCalories); // 스트림을 숫자 스트림으로 변환
+  Stream<Integer> stream = intStream.boxed(); // 숫자 스트림 -> 스트림 변환
+  ```
+
+#### 기본값 : OptionalInt
+- 합계 예제에서는 `0`이라는 기본값 존재
+- `IntStream`에서 **최댓값**을 찾을 때는 `0`이라는 기본값 때문에
+  - 잘못된 값이 도출될 수 있음
+- 스트림에 **요소가 없는** 상황과, 실제 최댓값이 `0`인 상황을 구분하려면
+  - `Optional` 연관 참조 내역을 활용
+- `Optional`을 `Integer, String`등의 참조형식으로 **파라미터화**
+- `OptionalInt, OptionalDouble, OptionalLong`의 세 가지 **기본형 특화 스트림 버전**을 제공
+- 예시 : `OptionalInt`를 사용하여 `IntStream`의 최댓값 요소 찾기
+  ```java
+  OptionalInt maxCalories = menu.stream().mapToInt(Dish::getCalories).max();
+  int max = maxCalories.orElse(1); // 값이 없을 때, 기본 최댓값을 명시적으로 설정
+  ```
