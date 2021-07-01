@@ -508,3 +508,253 @@ Optional<Transaction> smallestTransaction =
   OptionalInt maxCalories = menu.stream().mapToInt(Dish::getCalories).max();
   int max = maxCalories.orElse(1); // 값이 없을 때, 기본 최댓값을 명시적으로 설정
   ```
+
+### 5.7.2. 숫자 스트림 활용 : 피타고라스 수
+- 피타 고라스 수 스트림
+  - `a^2 + b^2 = c^2`를 만족하는 세수의 스트림 찾기
+- 세 수를 표현할 클래스가 아닌, **세 요소를 갖는 int배열**을 사용하기
+
+#### 좋은 필터링 조합
+```java
+Math.sqrt(a*a + b*b) % 1 == 0;
+```
+- 만약 `x`가 부동 소숫점 수라면, `x%1.0`이라는 코드로 소숫점 이하 부분을 얻을 수 있음
+- `filter`를 활용하는 방법
+  ```java
+  filter(b -> Math.sqrt(a*a + b*b) % 1 == 0)
+  ```
+  - `a`라는 값이 주어지고, `b`는 스트림이라고 가정할 때,
+    - `filter`로 `a`와 함께 피타고라스 수를 구성하는 모든 `b`를 필터링 할 수 있음
+
+#### 집합 생성
+- 각 요소를 피타고라스 수로 변환
+  ```java
+  stream.filter(b -> Math.sqrt(a*a + b*b) % 1 == 0)
+  .map(b -> new int[]{a,b, (int) Math.sqrt(a*a + b*b)});
+  ```
+
+#### b값 생성
+- `Stream.rangeClosed`로 주어진 범위의 수를 만들 수 있음
+- `1 ~ 100`까지의 `b`값 생성
+  ```java
+  IntStream.rangeClosed(1, 100)
+            .filter(b -> Math.sqrt(a*a + b*b) % 1 == 0)
+            .boxed()
+            .map(b -> new int[]{a, b, (int) Math.sqrt(a*a + b*b)});
+  ```
+- `filter` 이후 `rangeClosed`가 반환한 `IntStream`을
+  - `boxed`를 이용해서 `Stream<Integer>`로 복원
+- `map`은 스트림의 각 요소를 `int 배열`로 반환하기 때문
+- 스트림의 각 요소로 `int`가 반환될 것을 기대하나, 우리가 원하는 연산이 아님
+- 개체값 스트림을 반환하는 `IntStream`의 `mapToObj` 메서드를 이용하여 코드 재구현
+  ```java
+  IntStream.rangeClosed(1, 100)
+  .filter(b -> Math.sqrt(a*a + b*b) % 1 == 0)
+  .mapToObj(b -> new int[]{a, b, (int) Math.sqrt(a*a + b*b)})
+  ```
+
+#### a값 생성
+- a값을 추가하여 최종 완성 코드를 작성
+  ```java
+  Stream<int[]> pythagoreanTriples = 
+                      IntStream.rangeClosed(1, 100).boxed()
+                                .flatMap(a -> 
+                                  IntStream.rangeClosed(a, 100)
+                                            .filter(b -> Math.sqrt(a*a + b*b) % 1 == 0)
+                                            .mapToObj(b -> new int[]{a, b, (int)Math.sqrt(a*a + b*b)})
+                                        );
+  ```
+
+#### 코드 실행
+- `limit`을 포함하여, 얼마나 많은 세 수를 포함하는 스트림을 만들지 결정
+```java
+pythagoreanTriples.limit(5)
+                  .forEach(t -> System.out.println(t[0] + ", " + t[1] + ", " + t[2]));
+```
+
+#### 개선할 점
+- 제곱근을 두번 계산함
+  - `(a*a, b*b, a*a+b*b)` 형식을 만족하는 세 수를 만든 다음에
+  - 우리가 원하는 조건에 맞게 필터링 하는 것이 더 최적화된 방법
+- 개선 코드
+  ```java
+  Stream<double[]> pythoagoreanTriples2 =
+                      IntStream.rangeClosed(1, 100).boxed()
+                                .flatMap(a -> 
+                                  IntStream.rangeClosed(a, 100)
+                                  .mapObj(b -> new double[]{a, b, Math.sqrt(a*a + b*b)})
+                                  .filter(t -> t[2] % 1 == 0)
+                                );
+  ```
+
+## 5.8. 스트림 만들기
+
+### 5.8.1. 값으로 스트림 만들기
+- 임의의 수를 인수로 받는 정적 메서드 `Stream.of`를 이용해 스트림을 만들 수 있음
+- `Stream.of`로 문자열 스트림을 만드는 예시
+  ```java
+  Stream<String> stream = Stream.of("Modern ", "Java ", "In ", "Action");
+  stream.map(String::toUpperCase).forEach(System.out::println);
+  ```
+- `empty`메서드를 이용하여 스트림을 비우기
+  ```java
+  Stream<String> emptyStream = Stream.empty();
+  ```
+
+### 5.8.2. null이 될 수 있는 객체로 스트림 만들기
+- `java 9`에서는 `null`이 될 수 있는 개체를 스트림으로 만들 수 있는 **새로운 메서드** 추가
+- 때로는 `null`이 될 수 있는 객체를 **스트림**으로 만들어야 할 수 있음
+  - 객체가 `null`이라면 빈 스트림
+- `System.getProperty` : 제공 키에 대응되는 속성이 없으면 `null`을 반환
+  ```java
+  String homeValue = Sytem.getProperty("home");
+  Stream<String> homeValueStream = homeValue == null ? Stream.empty() : Stream.of(value);
+
+  // Stream.ofNullable을 활용
+  Stream<String> homeValueStream = Stream.ofNullable(System.getProperty("home"));
+
+  // null이 될 수 있는 객체를 포함하는 스트림 값을 `flapMap`과 함께 사용하는 상황에서 더 유용함
+  Stream<String> values = 
+                Stream.of("config", "home", "user")
+                      .flatMap(key -> Stream.ofNullable(Sytem.getProperty(key)));
+  ```
+
+### 5.8.3. 배열로 스트림 만들기
+- `Arrays.stream`을 이용
+  ```java
+  int[] numbers = {2, 3, 5, 7, 11, 13};
+  int sum = Arrays.stream(numbers).sum(); // 41
+  ```
+
+### 5.8.4. 파일로 스트림 만들기
+- File I/O 연산에 수행하는 자바의 `NIO API`(Non-blocking I/O)도 `Stream API`를 활용하도록 업데이트
+- `java.nio.file.Files`의 많은 **정적 메서드**가 스트림을 반환한다
+- `Files.lines`
+  - 주어진 행 스트림을 문자열로 반환
+- 파일에서 고유한 단어수를 찾는 프로그램
+  ```java
+  long uniqueWords = 0;
+  // stream은 자원을 자동으로 해제할 수 있는 `AutoCloseable`, try-finally가 필요 없음
+  try(Stream<String> lines = Files.lines(Paths.get("data.txt"), Charset.defaultCharset())) {
+    uniqueWords = lines.flatMap(line -> Arrays.stream(line.split(" ")))
+                        .distinct()
+                        .count();
+  }
+  ```
+- `Files.lines` 파일의 각 행요소 반환, 스트림
+- `Stream` 인터페이스는 `AutoCloseable` 인터페이스 구현
+- `try` 블록 내의 자원은 자동으로 관리
+
+### 5.8.5. 함수로 무한 스트림 만들기
+- 함수에서 스트림을 만들 수 있는 두 정적 메서드
+  - `Stream.iterate`
+  - `Stream.generate`
+- 두 연산을 이용하여, **infinite stream**을 생성 가능
+  - 크기가 고정되지 않은 스트림
+- `iterate`와 `generate`는 요청할 때마다, 주어진 함수를 이용하여 값을 생성
+- 무제한으로 값 생성은 가능하나, 보통 무한한 값을 출력하지 않도록 `limit(n)`함수를 함께 연결하여 사용
+
+#### iterate 메서드
+- 코드
+  ```java
+  Stream.iterate(0, n -> n+2)
+        .limit(10)
+        .forEach(System.out::println);
+  ```
+  - 초깃값(예제, `0`)과 람다(예제, `UnaryOperator<T>`)를 인수로 받아, 끊임없이 값 생산
+- 무한 스트림을 생성함
+- **Unbounded Stream**으로 표현
+- 최종 연산인 `forEach`를 호출하여, 스트림을 소비하고, 개별 요소 출력
+
+#### java 9의 iterate
+- java 9에서는 `predicate`를 지원
+- `0`에서 시작하여 `100`보다 크면 숫자 생성을 중단하는 코드
+  ```java
+  IntStream.iterate(0, n -> n < 100, n -> n + 4)
+            .forEach(System.out::println);
+  ```
+- `iterate` 메소드는 두 번째 인수로 `predicate`를 받아, 언제까지 작업을 수행할 것인지를 기준으로 사용
+  - `filter` 동작으로도 같은 결과를 얻을 수 있다고 생각할 수 있으나..
+    ```java
+    IntStream.iterate(0, n -> n + 4)
+              .filter(n -> n < 100)
+              .forEach(System.out::println);
+    ```
+    - 위와 같은 방법으로는 불가, 종료되지 않음
+    - `filter`의 경우, 이 작업을 중단해야하는지 알 수 없기 때문
+- `stream shortCircuit`을 지원하는 `takeWhile`을 이용해야 함
+  ```java
+  IntStream.iterate(0, n -> n + 4)
+            .takeWhile(n -> n < 100)
+            .forEach(System.out::println);
+  ```
+
+#### generate 메서드
+- 요구할 때 값을 계산하는 무한 스트림 생성 가능
+- `iterate`와 달리 생산된 각 값을 **연속적으로 계산하지 않음**
+- `Supplier<T>`를 인수로 받아, 새로운 값을 생성
+- 예시
+  ```java
+  Stream.generate(Math::random)
+        .limit(5)
+        .forEach(System.out::println);
+  ```
+- 사용처
+  - `supplier`는 상태가 없는 메서드
+    - 나중에 계산할 어떤 값도 저장하지 않음
+  - 하지만 `supplier`에 꼭 상태가 없어야하는 것은 아님
+  - `supplier`가 상태를 저장한 이후, 다음에 스트림의 다음 값을 만들 때, 해당 상태를 고칠 수 있음
+- 병렬 코드에 `supplier`가 있으면 안전하지 않음
+  - 예시로는 존재하나, 실제로는 피해야 함
+- 예시 코드 : 피보나치 수열
+  ```java
+  // 박싱 타입을 사용하여 `IntSupplier`를 인수로 받음
+  IntStream ones = IntStream.generate(() -> 1);
+
+  // IntSupplier에 정의된 getAsInt를 구현하는 객체를 명시적으로 전달 가능
+  IntStream twos = IntStream.generate(new IntSupplier() {
+    public int getAsInt() {
+      return 2;
+    }
+  });
+
+  // generate는 supplier를 이용하여 2를 반환하는 `getAsInt` 메서드를 반복적으로 호출
+  // 여기서의 익명 클래스는, 람다와 비슷한 연산을 수행하나, 
+  // 익명 클래스에는 `getAsInt` 메서드의 연산 커스텀 할 수 있는 상태 필드를 정의할 수 있음
+  // 부작용이 발생할 수 있음(상태를 가지지 않는 람다는 부작용이 없음)
+
+  // 기존 수열 상태 저장, getAsInt로 다음 요소를 계산하도록 IntSupplier를 만들어야 함
+  // 다음에 호출될 때는 IntSupplier의 상태 갱신 필요
+  // 피보나치 요소를 반환하도록 IntSupplier 구현
+  IntSupplier fib = new IntSupplier() {
+    private int previous = 0;
+    private int current = 1;
+    public int getAsInt() {
+      int oldPrevious = this.previous;
+      int nextValue = this.previous + this.current;
+      this.previous = this.current;
+      this.current = nextValue;
+      return oldPrevious;
+    }
+  };
+  IntStream.generate(fib).limit(10).forEach(System.out::println);
+  ```
+- 위 코드에서는 `IntSupplier` 인스턴스를 생성
+  - 만들어진 객체는 `기존 피보나치 요소`와, `두 인스턴스 변수에 어떤 요소`인지 추적하므로 `mutable`상태
+  - `getAsInt`를 호출하면, 객체 상태가 바뀌며 새로운 값을 생산
+  - `iterate` 사용시, 각 과정에서 새로운 값을 생성
+    - 기존 상태를 **변경하지 않음**, `immutable`
+- 스트림을 **병렬**로 처리하면서, 올바른 결과를 얻으려면 **불변 상태 기법**을 고수해야 함
+- 위 예시에서 `limit`을 이용하여 명시적으로 **스트림 크기 제한** 필요
+  - 그렇지 않을경우, 최종 연산(e.g. `forEach`) 수행시, 아무런 결과도 리턴되지 않음
+  - 무한 스트림의 요소는 **무한적**으로 계산이 반복되므로
+    - **정렬 및 리듀스가 불가**
+
+## 5.9. 마치며
+- **스트림 API**를 이용하면 **복잡한 데이터 처리 질의 표현 가능**
+- `filter, distinct, takeWhile(java9), dropWhile(java9), skip, limit` 메서드로, 스트림을 필터링 하거나 자를 수 있음
+- 소스가 **정렬**되었다는 사실을 알고 있을 때, `takeWhile, dropWhile` 메서드를 효과적으로 사용할 것
+- `map, flatMap` 메서드로 **스트림의 요소 추출/변환** 가능
+- `findFirst, findAny` 메서드로, 스트림의 요소 **검색** 가능
+  - `allMatch, noneMatch, anyMatch` 메서드를 이용하여
+  - 주어진 `predicate`와 일치하는 요소를 스트림에서 **검색** 가능
