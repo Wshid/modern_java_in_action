@@ -228,3 +228,142 @@
 - `?`는 컬렉터의 누적자 형식이 **알려지지 않음**을 의미
   - 누적자의 형식이 **자유로움**
 - `Collector` 클래스에서 원래 정의된 **메서드 시그니처**를 그대로 사용함
+
+## 6.3. 그룹화
+- 메뉴 그룹화 - `Collectors.groupingBy`의 예시
+  ```java
+  Map<Dish.Type, List<Dish>> dishesByType = menu.stream().collect(groupingBy(Dish::getType));
+  ```
+- 위 함수를 통해 **스트림**이 **그룹화**되므로
+  - 이를 **분류 함수**(classification function)이라고 함
+- 메서드 참조 대신 람다 표현식으로 구현하기
+  ```java
+  public enum CaloricLevel {DIET, NORMAL, FAT}
+  Map<CaloricLevel, List<Dish>> dishesByCaloricLevel = menu.stream.collect(
+    goupingBy(dish -> {
+      if (dish.getCalories() <= 400) return CaloricLevel.DIET;
+      else if (dish.getCalories() <= 700) return CaloricLevel.NORMAL;
+      else return CaloricLevel.FAT;
+    })
+  )
+  ```
+
+### 6.3.1. 그룹화된 요소 조작
+- 요소 그룹화 이후 **각 결과 그룹의 요소 조작 연산**
+- 필터링 하게 될 경우 문제 발생
+  - 해당 필터가 걸리면서, `key`자체가 제외되는 문제 발생
+- `predicate`를 이동하여 문제 해결
+  ```java
+  Map<Dish.Type, List<Dish>> caloricDishesByType = 
+    menu.stream().collect(groupingBy(Dish::getType, 
+      filtering(dish -> dish.getCalories() > 500, toList())));
+  ```
+- `filtering` 메서드는 `Collectors` 클래스의 또 다른 **정적 팩터리 메서드**로 `predicate`를 인수로 받음
+  - 이 `predicate`로 각 그룹의 **요소**와 **필터링 된 요소**를 **재그룹화**
+- **매핑 함수**를 사용하여 요소를 변환하기
+  - `Collectors` 클래스는, 매핑 함수와 각 **항목에 적용한 함수**를 모으는 데 사용하는
+    - 또 다른 컬렉터를 인수로 받음 -> `mapping` 메서드
+  - 예시
+    ```java
+    Map<Dish.Type, List<String>> dishNamesByType = 
+      menu.stream()
+            .collect(groupingBy(Dish::getType, mapping(Dish::getName, toList())));
+    ```
+- `flatMapping`으로 각 형식의 요리 태그를 추출할 수 있음
+  ```java
+  Map<Dish.Type, List<String>> dishNamesByType = 
+      menu.stream()
+            .collect(groupingBy(Dish::getType, flatMapping(dish -> dishTags.get(dish.getName()).stream(), toSet())));
+  ```
+
+### 6.3.2. 다수준 그룹화
+- 두 인수를 받는 `Collectors.groupingBy`를 이용하여
+  - 항목을 **다수준으로 그룹화**할 수 있음
+- `Collectors.groupingBy`는 일반적인 **분류 함수**와 **컬렉터**를 인수로 받음
+  - 바깥쪽 `groupingBy` 메서드에
+    - 스트림의 항목을 분류할 **두번째 기준을 정의하는** 내부 `groupingBy`를 전달하여, 두 수준으로 스트림의 항목 그룹화 가능
+- 예시
+  ```java
+  Map<Dish.Type, Map<CaloricLevel, List<Dish>>> dishesByTypeCaloricLevel = 
+    menu.stream().collect(
+      groupingBy(Dish::getType,
+        groupingBy(dish -> {
+          if (dish.getCalories() <= 400)
+            return CaloricLevel.DIET;
+          else if (dish.getCalories() <= 700)
+            return CaloricLevel.NORMAL; 
+          else return CaloricLevel.FAT;
+        })
+      )
+    );
+  ```
+- 보통 `groupingBy` 연산을 `bucket`의 개념으로 생각하면 됨
+  - 각 `groupingBy`는 각 키의 **버킷**을 생성
+  - 그리고 준비된 각 버킷을 `substream collector`로 채워가기를 반복하면서 `n수준 그룹화` 진행
+
+### 6.3.3. 서브그룹으로 데이터 수집
+- 메뉴 종류별 연산
+  ```java
+  Map<Dish.Type, Long> typesCount = menu.stream().collect(
+    groupingBy(Dish::getType, counting())
+  );
+  ```
+- 인수 하나의 `groupingBy(f)`는 `groupingBy(f, toList())`와 동일
+- 팩토리 메서드 `maxBy`의 특징
+  - `Optional`로 `Map`의 값이 변화
+  - `groupingBy` 컬렉터는, 스트림의 **첫 번째 요소**를 찾은 이후에야
+    - 그룹화 맵에 **새로운 키를** 게으르게 추가
+    - 리듀싱 컬렉터가 반환하는 형식을 사용하는 상황이므로,
+      - 굳이 `Optional` 래퍼를 사용할 필요가 없음
+
+#### 컬렉터 결과를 다른 형식에 적용하기
+- 맵의 모든 값을 `Optional`로 감쌀 필요가 없을 때, 제거 가능
+- `Collectors.collectingAndThen` 컬렉터를 활용하면 됨
+  ```java
+  Map<Dish.Type, Dish> mostCaloricByType =
+    menu.stream()
+        .collect(groupingBy(Dish::getType, // 분류 함수 
+          collectingAndThen(
+            maxBy(comparingInt(Dish::getCalories)), // 감싸진 컬렉터
+            Optional::get))); // 변환 함수
+  ```
+- `collectingAndThen`은
+  - 적용할 **컬렉터**와 **변환 함수**를 인수로 받아 처리
+- **리듀싱 컬렉터**의 경우, 절대 `Optional.empty()`를 리턴하지 않으므로, **안전한 코드**
+
+#### groupingBy와 함께 사용하는 다른 컬렉터 예제
+- `goupringBy`에 두번째 인수로 전달한 컬렉터 사용
+  - 같은 그룹으로 분류된 **모든 요소**에 **리듀싱 작업** 수행시
+- 예제 - 모든 요리의 칼로리 합계
+  ```java
+  Map<Dish.Type, Integer> totalCaloriesByType =
+    menu.stream().collect(groupingBy(Dish::getType, summingInt(Dish::getCalories)));
+  ```
+- `mapping`으로 만들어진 **컬렉터**도 `groupingBy`와 자주 사용
+  - `mapping` 메서드는
+    - **스트림의 인수**를 변환하는 함수와
+    - **변환 함수의 결과 객체를 누적하는 컬렉터**를 인수로 받음
+- 예를 들어, 각 요리 형식에 존재하는 모든 `CaloricLevel`을 알고 싶을 때
+  ```java
+  Map<Dish.Type, Set<CaloricLevel>> caloricLevelsByType =
+    menu.stream().collect(
+      groupingBy(Dish::getType, mapping(dish -> {
+        if(dish.getCalories() <= 400) return CaloricLevel.DIET;
+        else if (dish.getCalories() <= 700) return CaloricLevel.NORMAL;
+        else return CaloricLevel.FAT; }, toSet()
+      ))
+    );
+  ```
+- 결과 제어 : `toCollection`을 사용한 결과 제어(`Set`의 형식 부여)
+  ```java
+  Map<Dish.Type, Set<CaloricLevel>> caloricLevelsByType =
+    menu.stream().collect(
+      groupingBy(Dish::getType, mapping(dish -> {
+        if(dish.getCalories() <= 400) return CaloricLevel.DIET;
+        else if (dish.getCalories() <= 700) return CaloricLevel.NORMAL;
+        else return CaloricLevel.FAT; },
+        toCollection(HashSet::new)
+      }
+      ))
+    );
+  ```
