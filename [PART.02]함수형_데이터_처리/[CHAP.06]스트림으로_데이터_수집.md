@@ -367,3 +367,63 @@
       ))
     );
   ```
+
+## 6.4. 분할
+- **분할 함수**(partitioning function)라 불리는 `predicate`를 **분류 함수**로 사용하는 특수한 그룹화 기능
+- `Boolean`을 반환하기 때문에, 키 형식은 `Boolean`
+- 그룹화 맵은 최대 두개의 그룹으로 분류(참 or 거짓)
+- 예제 : 채식 요리 구분하기
+  ```java
+  Map<Boolean, List<Dish>> partitionedMenu = 
+    menu.stream().collect(partitioningBy(Dish::isVegetarian)); // 분할 함수
+  // false, true를 키로하는 분류된 맵이 반환됨
+
+  // 이전 예제에서 생성한 `predicate`로 필터링하여, 별도의 리스트에 결과 수집을 하는 방법
+  List<Dish> vegetarianDishes = menu.stream().filter(Dish::isVegetarian.collect(toList()));
+  ```
+
+### 6.4.1. 분할의 장점
+- 분할 함수가 반환하는 `참, 거짓` 두 가지 요소의 스트림 리스트를
+  - 모두 유지한다는 것이 분할의 장점
+- **컬렉터**를 **두 번째 인수**로 전달할 수 있는 `partitioningBy`
+  ```java
+  Map<Boolean, Map<Dish.Type, List<Dish>>> vegetariuanDishesByType = menu.stream().collect(
+    partitioningBy(Dish::isVegetarian, // 분할 함수
+    groupingBy(Dish::getType))); // 두 번째 컬렉터
+  ```
+  - depth가 깊어지면서, `false, true`로 구분된 맵 내부에서 `Dish::type`별로 나누어짐
+- 채식 요리와 채식 요리가 아닌 요리 각각 그룹에서, 가장 칼로리가 높은 요리 찾기
+  ```java
+  Map<Boolean, Dish> mostCaloricPartitionedByVegeterian = 
+    menu.stream().collect(
+      partitioningBy(Dish::isVegetarian,
+      collectiongAndThen(maxBy(comparingInt(Dish::getCalories)), Optional::get)));
+  ```
+- `partitioningBy`가 반환한 맵 구현은
+  - 참과 거짓 두 가지 키만 포함하므로 더 간결하고 효과적
+
+### 6.4.2. 숫자를 소수와 비소수로 분할하기
+- 정수 `n`을 받아 `2 ~ n`까지의 **자연수**를 **소수**(prime)와 **비소수**(non-prime)으로 나누는 프로그램
+  ```java
+  public boolean isPrime(int candidate) {
+    return IntStream.range(2, candidate) // 2부터 candidate 미만의 자연수 생성
+              .noneMatch(i -> candidate % i == 0); // 스트림을 모든 정수로 candidate를 나눌수 없다면 참
+  }
+
+  // // 소수의 대상을 제고급 이하의 수로 제한
+  public boolean isPrime(int candidate) {
+    int candidateRoot = (int) Math.sqrt((double)candidate);
+    return IntStream.rangeClosed(2, candidateRoot)
+    .noneMatch(i -> candidate % i == 0);
+  }
+  ```
+- `n`개의 숫자를 포함하는 스트림 제작 이후
+  - `isPrime` 메서드를 `predicate`로 이용하고 `partitioningBy` 컬렉터로 **리듀스**해서
+  - 숫자를 **소수**와 **비소수**로 분류할 수 있음
+  - 코드
+    ```java
+    public Map<Boolean, List<Integer>> partitionPrimes(int n) {
+      return IntStream.rangeClosed(2,n).boxed()
+      .collect(
+        partitioningBy(candidate -> isPrime(candidate)))};
+    ```
