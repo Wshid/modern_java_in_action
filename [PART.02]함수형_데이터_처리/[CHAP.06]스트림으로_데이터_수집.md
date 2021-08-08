@@ -427,3 +427,209 @@
       .collect(
         partitioningBy(candidate -> isPrime(candidate)))};
     ```
+
+## 6.5. Collector 인터페이스
+- **Collector 인터페이스**는 리듀싱 연산(컬렉터)을 어떻게 구현할지 제공하는 **메서드 집합**으로 구성
+- `toList, groupingBy` 등
+- **Collector 인터페이스**를 구현하는 **리듀싱 연산**을 만들수도 있음
+
+#### CODE.6.4. Collector 인터페이스
+```java
+public interface Collector<T, A, R> {
+  Supplier<A> supplier();
+  BiConsumer<A, T> accumulator();
+  Function<A, R> finisher();
+  BinaryOperator<A> combinder();
+  Set<Chracterlistics> characteristics();
+}
+```
+- `T` : **수집**될 스트림 항목의 제네릭 형식
+- `A` : **누적자**, 수집 과정에서 중간 결과를 누적하는 결과의 형식
+- `R` : 수집 연산 **결과 객체**의 형식(대개 걸렉션)
+- `Stream<T>`의 모든 요소를 `List<T>`로 수집하는 `ToListCollector<T>` 객체
+  ```java
+  public class ToListCollector<T> implements Collector<T, List<T>, List<T>>
+  ```
+
+### 6.5.1. Collector 인터페이스의 메서드 살펴보기
+- 네 개의 메서드는 `collect` 메서드에서 실행하는 **함수**를 반환
+- 마지막 메서드 `characteristics`는 
+  - `collect` 메서드가 어떤 최적화(e.g. 병렬화)를 이용하여 
+  - **리듀싱 연산**을 수행할 것인지 결정하도록 돕는 **힌트 특성 집합**을 제공
+
+#### accumulator 메서드 : 결과 컨테니어에 요소 추가하기
+- **리듀싱 연산**을 수행하는 함수
+- 스트림에서
+  - `n`번째 요소를 **탐색**할 때
+  - 두 인수, 즉 누적자(`n-1을 수집한 상태`)와 `n`번째 요소를 함수에 적용
+- 함수의 반환값은 `void`
+  - 요소를 탐색하면서 **적요하는 함수에 의해 누적자 내부 상태가 변경**
+  - 누적자가 어떤 값인지 단정할 수는 없음
+- `ToListCollector`에서 `accumulator`가 반환하는 함수는
+  - 이미 탐색한 항목을 포함하는 **리스트**에 **현재 항목을 추가하는 연산 수행**
+- 코드
+  ```java
+  public BiConsumer<List<T>, T> accumulator() {
+    return (list, item) -> list.add(item);
+  }
+
+  // 메서드 참조를 사용하는 방법
+  public BiConsumer<List<T>, T> accumulator() {
+    return List::add;
+  }
+  ```
+
+#### finisher 메서드 : 최종 변환값을 결과 컨테이너로 적용하기
+- `finisher`메서드는
+  - **스트림 탐색**을 끝내고, **누적자 객체**를 **최종 결과**로 반환하면서
+  - 누적 과정을 끝낼 때 호출할 함수를 반환해야 함
+- 때로는 `ToListCollector`에서 볼 수 있는 것처럼, 누적자 객체가 **이미 최종 결과**인 상황도 있음
+- 이런 때는 **변환 과정**이 필요하지 않으므로, `finisher` 메서드는 항등 함수를 반환
+- 코드
+  ```java
+  public Function<List<T>, List<T>> finisher() {
+    return Function.identity();
+  }
+  ```
+
+#### 순차 리듀싱 리듀싱 기능 수행
+- 순서
+  ```java
+  시작.
+  A accumulator = collector.supplier().get();
+  collector.accumulator().accept(accumulator, next)
+  
+  스트림에 요소가 남아 있는가?
+    yes
+      T next = 스트림의 다음 항목
+      collector.accumulator().accept(accumulator, next)
+      반복
+    no
+      R result = collector.finisher().apply(accumulator);
+      return result;
+  끝.
+  ```
+- 실제로는 `collect`가 동작하기 이전에
+  - 다른 **중간 연산**과
+  - **파이프라인**을 구성할 수 있게 해주는 **게으른 특성**
+  - **병렬 실행** 등도 고려해야 하므로, **스트림 리듀싱 구현 기능**은 생각보다 복잡함
+
+#### combiner 메서드 : 두 결과 컨테이너 병합
+- 리듀싱 연산에서 **사용할 함수**를 반환
+- `combiner`는
+  - 스트림의 서로 다른 **서브 파트**를 **병렬**로 처리할 때
+  - **누적자**가 이 결과를 어떻게 처리할지를 정의
+- `toList`의 `combiner`
+  - 스트림의 두번째 **서브 파트**에서 수집한 **항목 리스트**를
+  - **첫번째 서브 파트** 결과 리스트에 추가하면 됨
+  - 코드
+    ```java
+    public BinaryOperator<List<T>> combimner() {
+      return (list1, list2) -> {
+        list1.addAll(list2);
+        return list1;
+      }
+    }
+    ```
+- 이 메서드를 활용하면, **스트림의 리듀싱**을 **병렬**로 수행할 수 있음
+- 스트림의 리듀싱을 **병렬**로 수행할 때
+  - java 7의 `fork/join` 프레임워크와
+  - `Spliterator`를 사용
+
+#### 스트림의 병렬 리듀싱 수행 과정
+- 스트림을 분할해야하는지 정의하는 조건이 **거짓**으로 바뀌기 전까지
+  - 원래의 스트림을 **재귀적으로 분할**
+  - 분산된 작업의 크기가 `너무 작아지면`
+    - 병렬 수행의 속도는 **순차 수행의 속도보다 느림**
+    - 병렬 수행의 효과가 **상쇄**
+- 모든 `substream`의 각 요소에 **리듀싱 연산**을 순차적으로 적용
+  - `substream`을 병렬로 처리
+- `combiner` 메서드가 반환하는 함수로 모든 부분결과를 **쌍**으로 합친다
+  - 분할된 모든 서브 스트림의 결과를 합치면서 연산 완료
+
+#### Characteristics 메서드
+- 컬렉션의 연산을 정의하는 `Characteristics` 형식의 **불변 집합**을 반환
+- 스트림을 **병렬**로 리듀스할 것인지, 병렬로 리듀스 한다면
+  - 어떤 **최적화**를 선택해야할지 힌트 제공
+- 다음 세 항목을 포함하는 **열거형**
+  - `UNORDERED`
+    - 리듀싱 결과는 **스트림 요소**의 **방문 순서**나 **누적 순서**에 영향을 받지 않음
+  - `CONCURRENT`
+    - 다중 스레드에서 `accumulator`함수를 동시에 호출할 수 있음
+    - 이 컬렉터는 스트림의 **병렬 리듀싱**을 수행할 수 있음
+    - 컬렉터의 플래그에 `UNORDERED`를 함께 설정하지 않았다면
+      - 데이터 소스가 **졍렬되어 있지 않은**(집합처럼 요소의 **순서가 무의미**) 상황에서만 병렬 리듀싱 가능
+  - `IDENTITY_FINISH`
+    - `finisher` 메서드가 반환하는 함수는 단순히 `identity`를 적용할 뿐이므로, 이를 생략할 수 있음
+    - 리듀싱 과정의 최종 결과로 **누적자 객체를 바로 사용 가능**
+    - 누적자 `A`를 결과 `R`로 안전하게 형변환 가능
+- 지금까지 개발한 `ToListCollector`에서
+  - 스트림의 요소를 누적하는데 사용한 리스트가 **최종 결과 형식**이므로, 추가 변환이 필요 없음
+- `ToListCollector`은 `IDENTITY_FINISH`
+- 리스트의 순서는 상관이 없으므로, `UNORDERED`
+- `CONCURRENT`에도 부합함
+  - 단, 요소의 순서가 무의미한 데이터 소스일 경우에만 가능
+
+### 6.5.2. 응용하기
+- 커스텀 `ToListCollector` 구현하기
+
+#### CODE.6.5. ToListCollector
+```java
+public class ToListCollector<T> implements Collector<T, List<T>, List<T>> {
+  @Override
+  public Supplier<List<T>> supplier() {
+    return ArrayList::new; // 수집 연산의 시작점
+  }
+
+  @Override
+  public BiConsumer<List<T>, T> accumulator() {
+    return List::add; // 탐색한 항목을 누적하고, 누적자를 고침
+  }
+
+  @Override
+  public Function<List<T>, List<T>> finisher() {
+    return Function.identity(); // 항등 함수
+  }
+
+  @Override
+  public BinaryOperator<List<T>> combiner() {
+    return (list1, list2) -> { 
+      list1.addAll(list2); // 두 번째 콘텐츠와 합쳐서, 첫 번째 누적자를 고침
+      return list1; // 변경된 첫번째 누적자 반환
+    };
+  }
+
+  @Override
+  public Set<Caracteristics> characteristics() {
+    return Collections.unmodifiableSet(EnumSet.of(IDENTIFY_FINISH, CONCURRENT)); // 컬렉션의 플래그 설정
+  }
+}
+```
+- 위 구현이 `Collectors.toList` 메서드가 반환하는 결과와 완전히 같은 것은 아님,
+  - 사소한 최적화를 제외하면, 대체로 비슷함
+- `JAVA API`에서 제공하는 컬렉터는 singleton `Collectors.emptyList()`로 **빈 리스트**를 반환
+- 기존의 코드와 비교
+  ```java
+  // ToListcollector 활용
+  List<Dish> dishes = menuStream.collect(new ToListCollector<Dish>());
+  // 기존 코드
+  List<Dish> dishes = menuStream.collect(toList());
+  ```
+
+#### 컬렉터 구현을 만들지 않고도 커스텀 수집 수행하기
+- `IDENTITY_FINISH` 수집 연산에서는 `Collector` 인터페이스를 완전히 새로 구현하지 않고도, 같은 결과를 얻을 수 있음
+- `Stream`은 세 함수(발생, 누적, 합침)을 인수로 받는 `collect` 메서드를 **오버로드**하며
+  - 각가의 메서드는 `Collector` 인터페이스의 메서드가 반환하는 함수과 같은 기능 수행
+- 예시 : 스트림의 모든 항목을 리스트에 수집
+  ```java
+  List<Dish> dishes = menuStream.collect(
+    ArrayList::new, // 발행
+    List:add, // 누적
+    List::addAll // 합침
+    );
+  ```
+- 더 간결하고 축약성은 있으나, **가독성이 떨어짐**
+- 적절한 클래스로 **커스텀 컬렉터**를 구현하는 편이
+  - 중복을 피하고 재사용성을 높임
+- 위 `collect` 메서드로는 `Characteristics`를 전달 할 수 없음
+  - 오직 `IDENTITY_FINISH`와 `CONCURRENT`지만, `UNORDERED`는 아닌 컬렉터로만 동작
