@@ -633,3 +633,188 @@ public class ToListCollector<T> implements Collector<T, List<T>, List<T>> {
   - 중복을 피하고 재사용성을 높임
 - 위 `collect` 메서드로는 `Characteristics`를 전달 할 수 없음
   - 오직 `IDENTITY_FINISH`와 `CONCURRENT`지만, `UNORDERED`는 아닌 컬렉터로만 동작
+
+## 6.6. 커스텀 컬렉터를 구현해서 성능 개선하기
+#### CODE.6.6. n이하의 자연수를 소수와 비소수로 분류하기
+```java
+public Map<Boolean, List<Integer>> partitionPrimes(int n) {
+  return IntStream.rangeClosed(2, n).boxed()
+                  .collect(partitioningBy(candidate -> isPrime(candidate)));
+}
+
+// 제곱근 이하로 candidate(대상)의 숫자 범위를 제한하여 isPrime 메서드 개선
+public boolean isPrime(int candidate) {
+  int candidateRoot = (int) Math.sqrt((double) candidate);
+  return IntStream.rangeClosed(2, candidateRoot)
+  .noneMatch(i -> candidate % i == 0);
+}
+```
+
+### 6.6.1. 소수로만 나누기
+- 소수로 나누어떨어지는지 확인하여 대상의 범위 좁히기
+- 컬렉터로는 **컬렉터 수집 과정**에서 **부분결과**에 접근하기 어려우므로
+  - 커스텀 컬렉터 클래스로 이를 해결하기
+- 중간 결과 리스트가 있다면, `isPrime`을 가지고 전달
+  ```java
+  public static boolean isPrime(List<Integer> primes, int candidate) {
+    return primes.stream().noneMatch(i -> candidate % i == 0);
+  }
+  ```
+- 대상의 제곱보다 큰 소수를 찾으면 검사를 중단하여 성능 문제 개선하기
+  - 정렬된 리스트와 `predicate`를 인수로 받아,
+  - 리스트의 첫 요소에서 시작해서, `predicate`를 만족하는 가장 긴 요소로 이루어진 리스트 반환
+  ```java
+  public static boolean isPrime(List<Integer> primes, int candidate) {
+    int candidateRoot = (int) Math.sqrt((double) candidate);
+    return primes.stream()
+                  .takeWhile(i -> i <= candidateRoot)
+                  .noneMatch(i -> candidate % i == 0);
+  }
+  ```
+- `takeWhile`의 구현
+  - 정렬된 리스트의 `predicate`를 인수로 받아, `predicate`를 만족하는 가장 긴 **첫 요소 리스트**를 반환하도록 하기
+  ```java
+  public static <A> List<A> takeWhile(List<A> list, Predicate<A> p) {
+    int i = 0;
+    for (A item : list) {
+      if (!p.test(item)) { // 리스트의 현재 항목이 predicate를 만족하는지 확인
+        return list.subList(0, i); // 만족하지 않을 경우, 현재 검사한 항목의 이전 하위 항목 리스트를 반환
+      }
+      i++;
+    }
+    return list;
+  }
+  ```
+
+#### 1단계 : Collector 클래스 시그니처 정의
+```java
+// T : 스트림 요소의 형식
+// A : 중간 결과를 누적하는 객체의 형식
+// R : collect 연산의 최종 결과 형식
+public interface Collector<T, A, R>
+```
+- 정수로 이루어진 스트림에서
+  - `Map<Boolean, List<Integer>>`인 컬렉터를 구현해야 함
+  - 값에는 `소수`와 `소수가 아닌 수`를 가짐
+- 형태
+  ```java
+  public class PrimeNumbersCollector implements Collector<Integer, 
+                                                          Map<Boolean, List<Integer>>, // 누적자 형식
+                                                          Map<Boolean, List<Integer>>> // 수집 연산의 결과 형식
+  ```
+
+#### 2단계 : 리듀싱 연산 구현
+- `Collector` 인터페이스에 선언된 다섯 메서드 구현하기
+- **Supplier**
+  ```java
+  public Supplier<Map<Boolean, List<Integer>>> supplier() {
+    return () -> new HashMap<Boolean, List<Integer>>() {{
+      put(true, new ArrayList<Integer>());
+      put(false, new ArrayList<Integer>());
+    }}
+  }
+  ```
+  - 누적자로 사용할 `Map`을 생성하면서
+    - `true`, `false`키와 **빈 리스트**로 초기화
+- **BiConsumer**, accumulator 만들기
+  - 스트림의 요소를 어떻게 수집할 것인지에 대한 내용
+  - 언제든지 원할 때 **수집 과정의 중간 결과**를 리턴할 수 있어야 함
+  ```java
+  public BiConsumer<Map<Boolean, List<Integer>>, Integer> accumulator() {
+    return (Map<Boolean, List<Integer>> acc, Integer candidate) -> {
+      acc.get(isPrime(acc.get(true), candidate)) // isPrime의 결과에 따라 소수 리스트와 비소수 리스트를 만듦
+      .add(candidate); // candidate에 알맞은 리스트를 추가
+    }
+  }
+  ```
+
+#### 3단계 : 병렬 실행할 수 있는 컬렉터 만들기(가능하다면)
+- **병렬 수집 과정**에서 **두 부분 누적자**를 합칠 수 있는 메서드 만들기
+- 코드
+  ```java
+  public BinaryOperator<Map<Boolean, List<Integer>>> combiner() {
+    return (Map<Boolean, List<Integer>> map1, Map<Boolean, List<Integer>> map2) -> {
+      map1.get(true).addAll(map2.get(true));
+      map1.get(false).addAll(map2.get(false));
+      return map1;
+    };
+  }
+  ```
+- 알고리즘 자체가 순차적이라, 실제 병렬로 사용은 불가능
+- `combiner`는 실제 호출될 일은 없음
+  - 빈 구현으로 남기거나, `UnsupportedOperationException`을 던지도록 구현하면 좋음
+
+#### 4단계 : finisher 메서드와 컬렉터의 characteristics 메서드
+- **finisher**
+  ```java
+  // acc는 collector 결과 형식과 같으므로, 변환이 필요 없음
+  // 항등함수 identity를 반환하도록 finisher 메서드 구현
+  public Function<Map<Boolean, List<Integer>>, Map<Boolean, List<Integer>>> finisher() {
+    return Function.identity();
+  }
+  ```
+- **characteristics**
+  - `CONCURRENT`도 아니고, `UNORDERED`도 아니지만, `IDENTITY_FINISH`이므로 다음과 같이 구현
+  ```java
+  public Set<Characteristics> characteristics() {
+    return Collections.unmodifiableSet(EnumSet.of(IDENTITY_FINISH));
+  }
+  ```
+- 위 내용을 활용하여 `partitioningBy`를 이용하면, 커스텀 컬렉터로 교체 가능
+  ```java
+  public Map<Boolean, List<Integer>> partitionPrimesWithCustomCollector(int n) {
+    return IntStream.rangeClosed(2, n).boxed().collect(new PrimeNumbersCollector());
+  }
+  ```
+
+### 6.6.2. 컬렉터 성능 비교
+- `partitioningBy`로 만든 코드와 **커스텀 컬렉터**로 만든 코드의 기능은 같음
+- 성능 확인 코드
+  ```java
+  public class CollectorHarness {
+    public static void main(String[] args) {
+      long fastest = Long.MAX_VALUE;
+      for(int i = 0; i < 10 ; i ++) { // 테스트를 10번 반복
+        long start = Sysmtem.nanoTime();
+        partitionPrimes(1_000_000); // 백만개의 숫자를 소수와 비소수로 분할
+        long duration = (System.nanoTime() - start) / 1_000_000; // duration을 ms단위로 측정
+        if (duration < fastest) fastest = duration; // 가장 빨리 실행되었는지 확인
+      }
+      System.out.println("Fastest execution done in " + fastest + " msecs");
+    }
+  }
+  ```
+- **JMH**와 같은 과학적인 벤치마킹을 사용할 수 있으나,
+  - 간단한 예제이므로, 작은 벤치마킹 클래스로도 정확한 결과를 얻을 수 있음
+- `partitionPrimes`를 `partitionPrimesWithCustomCollector`로 변경하여 상호 구동하면 됨
+- **오버로드된 버전**의 `collect` 메서드로, `PrimeNumbersCollector`의 핵심 로직을 구현하는 세 함수를 전달하여 구현하기
+  ```java
+  public Map<Boolean, List<Integer>> partitionPrimesWithCustomCollector(int n) {
+    IntStream.rangeClosed(2, n).boxed()
+                                .collect(
+                                  () -> new HashMap<Boolean, List<Integer>>() {{ // 발행
+                                    put(true, new ArrayList<Integer>());
+                                    put(false, new ArrayList<Integer>());
+                                  }},
+                                  (acc, candidate) -> { // 누적
+                                    acc.get(isPrime(acc.get(true), candidate))
+                                        .add(candidate);
+                                  },
+                                  (map1, map2) -> { // 합침
+                                    map1.get(true).addAll(map2.get(true));
+                                    map1.get(false).addAll(map2.get(false));
+                                  }
+                                );
+  }
+  ```
+  - `Collector` 인터페이스를 구현하는 새로운 클래스를 만들지 않아도 되지만,
+    - 코드가 간결하나, 가독성과 재사용성이 떨어짐
+
+## 6.7. 마치며
+- `collect`는 스트림의 요소를 **요약 결과**로 누적하는 다양한 방법을 인수로 갖는 최종 연산
+- 스트림의 요소를 하나의 값으로 **리듀스** 하는 것 뿐 아니라, **최솟값, 최댓값, 평균값**을 계산하는 컬렉터가 미리 정의됨
+- 미리 정의된 컬렉터인
+  - `groupingBy`로 스트림 요소를 그룹화 하거나
+  - `partitioningBy`로 스트림 요소 분할 가능
+- 컬렉터는 다수준의 그룹화, 분할, 리듀싱 연산에 적합
+- `Collector` 인터페이스에 정의된 메서드를 구현하여, **커스텀 컬렉터** 개발 가능
