@@ -203,3 +203,130 @@ IntStream.range|3
 Stream.iterate|1
 HashSet|2
 TreeSet|2
+
+
+## 7.2. 포크/조인 프레임워크
+- 포크/조인 프레임워크는
+  - **병렬화**할 수 있는 작업을 **재귀적**으로 작은 작업으로 분할
+  - 이후 **서브테스크** 각각의 결과를 **합쳐서** 전체 결과로 만듦
+- 서브 태스크를 스레드 풀(ForkJoinPool)의 **작업자 스레드**에
+  - 분산 할당하는 `ExcecutorService` 인터페이스를 구현
+
+### 7.2.1. RecursiveTask 활용
+- 스레드 풀을 이용하려면 `RecursiveTask<R>`의 **서브 클래스**를 생성해야 함
+- `R`은 병렬화 된 태스크가 생성하는 **결과 형식** 또는
+  - **결과가 없을 때**(결과가 없더라도, 다른 비지역 구조를 바꿀수 있음)
+  - 이 때는 `RecursiveAction` 형식
+- `RecursiveTask`를 정의하려면
+  - 추상 메서드 `compute`를 구현해야 함 
+    ```java
+    protected abstract R compute();
+    ```
+- `compute` 메서드는
+  - 태스크를 **서브태스크**로 분할하는 로직과
+  - 더 이상 분할 할 수 없을 때 **개별 서브태스크의 결과를 생산**할 알고리즘 정의
+- 다음과 같은 의사코드를 따름
+  ```java
+  if(태스크가 충분히 작거나, 분할 불가능 하다면) {
+    순차적으로 태스크 계산
+  } else {
+    태스크를 두 서브태스크로 분할
+    태스크가 다시 서브태스크로 분할되도록 메서드 재귀적 호출
+    모든 서브태스크의 연산이 완료될 때까지 기다림
+    각 서브태스크의 결과를 합침
+  }
+  ```
+- 위 알고리즘은 `devide-and-conquer`의 병렬화 버전
+- `ForkJoinSumCalculator` 코드에서 보여주듯
+  - `RecursiveTask`를 구현해야 함
+
+#### CODE.7.2. 포크/조인 프레임워크를 이용해서 병렬 합계 수행
+```java
+public class ForkJoinSumCalculator extends java.util.concurrent.RecusiveTask<Long> {
+  private final long[] numbers;
+  private final int start;
+  private final int end;
+  private static final long THRESHOLD = 10_000; // 이 값 이하의 서브 태스크는 더 이상 분할 x
+
+  public ForkJoinSumCalculator(long[] numbers) { // 메인 태스크를 생성할 때 사용할 공개 생성자
+    this(numbers, 0, numbers.length);
+  }
+
+  private ForkJoinSumCalculator(long[] numnbers, int start, int end) { // 메인 태스크의 서브태스크를 재귀적으로 만들 때 사용하는 비공개 생성자
+    this.numbers = numbers;
+    this.start = start;
+    this.end = end;
+  }
+
+  @Override
+  protected Long compute() { // RecursiveTask의 추상 메서드 override
+    int length = end - start;
+    if (length <= THRESHOLD) {
+      return computeSequentially(); // 기준값과 같거나 작으면, 순차적으로 결과 계산
+    }
+
+    // 배열의 첫번째 절반을 더하도록 서브태스크 생성
+    ForkJoinSumCalculator leftTask = new ForkJoinSumCalculator(numbers, start, start + length/2);
+    // ForkJoinPool의 다른 스레드로 새로 생성한 태스크를 비동기로 실행
+    leftTask.fork();
+    
+    // 배열의 나머지 절반을 더하도록 서브태스크 생성
+    ForkJoinSumCalculator rightTask = new forkJoinSumCalculator(numbers, start + length/2, end);
+    // 두번째 서브 태스크를 동기 실행, 이 때 추가로 분할 가능성 존재
+    Long rightResult = rightTask.compute();
+    Long leftResult = leftTask.join(); // 첫번째 서브태스크의 결과를 읽거나, 결과가 없을 경우 기다림
+    return leftResult + rightResult;
+  }
+
+  // 더 분할할 수 없을 때 서브태스크의 결과를 계산하는 단순한 알고리즘
+  private long computeSequentially() {
+    long sum = 0;
+    for (int i = start; i < end; i ++) {
+      sum += numbers[i];
+    }
+    return sum;
+  }
+}
+```
+- 다음 코드 처럼 `ForkJoinSumCalculator`의 생성자로, 원하는 수의 배열을 넘길 수 있음
+  ```java
+  public static long forkJoinSum(long n) {
+    long[] numbers = LongStream.rangeClosed(1,n).toArray();
+    ForkJoinTask<Long> task = new ForkJoinSumCalculator(numbers);
+    return new ForkJoinPool().invoke(task);
+  }
+  ```
+  - `LongStream`으로 `n`까지의 자연수를 포함하는 배열 생성
+  - 마지막으로 생성한 태스크를 새로운 `ForkJoinPool::invoke`로 전달
+  - 마지막 `invoke` 메서드의 반환 값은 `ForkJoinSumCalculator`에서 정의한 태스크가 결과
+
+#### ForkJoinPool의 사용
+- 일반적으로 app에서는 **둘 이상의 ForkJoinPool을 사용하지 ㅇ낳음**
+- 필요한 곳에서 언제든 가져다 쓸 수 있도록
+  - `ForkJoinPool`을 한번만 **인스턴스화**하여
+  - **정적 필드에 싱글턴**으로 저장
+- `ForkJoinPool`을 만들면서
+  - 인수가 없는 **디폴트 생성자**를 사용했는데,
+  - 이는 `JVM`에서 이용할 수 있는 모든 `processor`가 자유롭게 **pool**에 접근 가능함을 의미
+- `Runtime.availableProcessors`의 반환값으로 **풀에 사용될 스레드 수를 결정**
+  - 실제 프로세서 외에 **하이퍼 스레딩**과 관련된 **가상 프로세서 개수**도 포함
+
+#### ForkJoinSumCalculator 실행
+- `ForkJoinSumCalculator`를 `ForkJoinPool`로 전달하면
+  - 풀의 스레드가 `ForkJoinSumCalculator`의 `compute` 메서드를 실행하면서 작업 수행
+- `compute` 메서드는 **병렬 실행이 가능할 만큼** 태스크가 작아졌는지 확인하며,
+  - 태스크의 크기가 크다고 판단되면, 두 개의 새로운 `ForkJoinSumCalculator`로 할당
+  - 그런 이후, `ForkJoinPool`이 새로 생성된 `ForkJoinSumCalculator`를 실행
+- 위 과정이 재귀적으로 반복 하면서, 주어진 조건에 만족할 때까지 태스크 분할
+- 각 서브태스크는 순차적으로 처리되며,
+  - 포킹 프로세스로 만들어진 **이진 트리**의 태스크를 **루트에서 역순으로 방문**
+- 서브 태스크의 부분결과를 합쳐 태스크의 최종 결과 계산
+- 성능 측정 방법
+  ```java
+  // 하니스를 사용한 포크/조인 프레임워크의 합계 메서드 성능 측정
+  System.out.println("ForkJoin sum done in : " 
+      + measureSumPerf(ForkJoinSumCalculator::forkJoinSum, 10_000_000) + "msecs");
+  ```
+- 실제 코드 수행시 **병렬 스트림**을 수행할 때보다 성능이 나쁜데,
+  - 이는 `ForkJoinSumCalculator` 태스크에서 사용할 수 있도록
+  - 전체 스트림을 `long[]`으로 변환했기 때문
