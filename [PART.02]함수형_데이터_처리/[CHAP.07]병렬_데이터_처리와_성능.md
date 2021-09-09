@@ -383,3 +383,259 @@ public class ForkJoinSumCalculator extends java.util.concurrent.RecusiveTask<Lon
 - 작업자의 **큐**에 있는 태스크를
   - 두개의 서브 태스크로 분할 했을 때, 둘 중 하나의 태스크를 다른 **유휴 작업자**가 훔쳐갈 수 있음
 - 주어진 태스크를 **순차 실행**할 단계가 될 때까지 이 과정을 **재귀적**으로 반복
+
+## 7.3. Spliterator 인터페이스
+- `Spliterator` : 분할할 수 있는 반복자(splitable iterator)
+- `Iterator `처럼 `Spliterator`는
+  - 소스의 **탐색 기능**을 제공하는 것은 같으나,
+  - **병렬 작업**에 특화되어 있음
+- 커스텀 `Spliterator`를 꼭 직접 구현해야하는 건 아니나,
+  - `Spliterator`가 어떻게 동작하는지 이해한다면
+  - **병렬 스트림 동작**에 대해 알 수 있음
+- `java 8`은 모든 `collection framework`에 포함된 모든 자료구조에 사용할 수 있는
+  - `default spliterator`를 제공
+- 컬렉션은 `spliterator`라는 메서드를 제공하는 `Spliterator interface`를 구현
+
+#### CODE.7.3. Spliterator Interface
+```java
+public interface Spliterator<T> {
+  boolean tryAdvance(Consumer<? super T> action);
+  Spliterator<T> trySplit();
+  long estimateSize();
+  int charateristics();
+}
+```
+- `T`는 탐색하는 요소의 **형식**을 의미
+- `tryAdvance` 메서드는
+  - `Spliterator`의 요소를 하나씩 순차적으로 소비하면서
+    - 탐색할 요소가 남아있다면 `true`를 반환
+    - 일반적인 Iterator 동작과 동일
+- `trySplit`은
+  - `Spliterator`의 일부 요소(자신이 반환한 요소)를 분할하여
+  - 두번째 `Spliterator`를 **생성하는 메서드**
+  - `Spliterator`에서는 `estimateSize` 메서드로 탐색해야할 요소 수 정보를 제공할 수 있음
+  - 탐색해야할 요소 수가 정확하진 않더라도,
+    - 제공된 값을 이용해서 더 쉽고 공평하게 `Spliterator`을 분할할 수 있음
+
+### 7.3.1. 분할 과정
+- 스트림을 여러 스트림으로 분할하는 과정은 **재귀적**으로 일어남
+- `Spliterator::trySplit`을 호출하면 `2n`개의 `Spliterator`가 생성됨
+- `trySplit`의 결과가 `null`이 될떄까지 반보 
+- `Spliterator`에 호출한 모든 `trySplit`의 결과가 `null`이변 재귀 분할을 종료
+- 이 분할 과정은 `characteristics` 메서드로 정의하는 `Spliterator`의 특성에 영향을 받음
+
+#### Spliterator의 특징
+- `charateristics` 추상 메서드
+  - `Spliterator` 자체의 특성 집합을 포함하는 `int`를 반환
+- `Spliterator`을 이용하는 프로그램은
+  - 이들 특성을 참고하여 `Spliterator`를 더 잘 제어하고 최적화 할 수 있음
+- Spliterator의 특성
+  - ORDERED
+    - 리스트처럼 정해진 순서가 있음
+  - DISTINCT
+    - `x,y`가 있을 때, `x.equals(y) = false`
+  - SORTED
+    - 탐색한 요소는 미리 정의된 정렬 순서를 따름
+  - SIZED
+    - 크기가 알려진 소스(`e.g. Set`)로 `Spliterator`를 선언
+    - `estimatedSize()`는 정확한 값 반환
+  - NON-NULL
+    - 모든 요소가 `null`이 아님
+  - IMMUTABLE
+    - `Spliterator`의 요소는 불변
+    - 요소를 탐색하는 동안 요소를 추가/삭제/고칠 수 없음
+  - CONCURRENT
+    - 동기화 없이 `Spliterator`의 소스를 여러 스레드에서 고칠 수 있음
+  - SUBSIZED
+    - 이 `Spliterator` 및 분할되는 모든 `Spliterator`는 `SIZED`의 특징을 가짐
+
+### 7.3.2. 커스텀 Spliterator 구현하기
+- 예제 : 문자열의 단어 수를 계산하는 단순한 메서드
+
+#### CODE.7.4. 반복형으로 단어 수를 세는 메서드
+```java
+public int countWordsIteratively(String s) {
+  int counter = 0;
+  boolean lastSpace = true;
+  for (char c: s.toCharArray()) { // 문자열의 모든 문자를 하나씩 탐색
+    if (Character.isWhitespace(c)) {
+      lastSpace = true;
+    } else {
+      if (lastSpace) counter++; // 문자를 하나씩 탐새갛다 공백 문자를 만나면, 지금까지 탐색한 문자를 단어로 간주, 단어 수를 증가
+      lastSpace = false;
+    }
+  }
+  return counter;
+}
+```
+
+#### 함수형으로 단어 수를 세는 메서드 재구현하기
+- `String`을 `Stream`으로 변환해야 함
+  - 스트림은 `int, long, double` 기본형만 제공하므로, `Stream<Character>`를 사용해야 함
+  ```java
+  Stream<Character> stream = IntStream.range(0, SENTENCE.length()).maptoObj(SENTENCE::charAt);
+  ```
+- 스트림에 리듀싱 연산을 실행하면서 **단어 수 계산 가능**
+- 지금까지 발견한 단어수를 계산하는 `int` 변수와
+- 마지막 문자가 공백이었는지 여부를 기억하는 `Boolean` 변수가 필요
+- 자바에는 **튜플**이 없으므로
+  - 튜플 : 래퍼 객체 없이 다형 요소의 정렬 리스트를 표현할 수 있는 구조체
+- 변수 상태를 캡슐화 하는 새로운 클래스 `WordCounter`를 만들어야 함
+
+##### CODE.7.5. 문자열 스트림을 탐색하면서 단어 수를 세는 클래스
+```java
+class WordCounter {
+  private final int counter;
+  private final boolean lastSpace;
+  public WordCounter(int counter, int lastSpace) {
+    this.counter = counter;
+    this.lastSpace = lastSpace;
+  }
+
+  public WordCounter accumulate(Character c) { // 반복 알고리즘 처럼 accumulate 메서드는 문자열의 문자를 하나씩 탐색
+    if (Character.isWhitespace(c)) {
+      return lastSpace ? this : new WordCounter(counter, true);
+    } else {
+      return lastSpace ? new WordCounter(counter+1, false) : this; // 문자를 하났기 탐색하다 공백 문자를 만나면, 단어 간주, 갯수 증가
+    }
+  }
+
+  public WordCounter combine(WordCounter wordCounter) {
+    return new WordCounter(counter + wordCounter.counter, wordCounter.lastSpace); // 두 WordCounter의 값을 더 함
+    // counter 값만 더하므로, 마지막 공백은 신경쓰지 않음
+  }
+  public int getCounter() {
+    return counter;
+  }
+}
+```
+- `accumulate` 메서드는
+  - `WordCounter`의 상태를 어떻게 바꿀 것인지,
+  - `WordCounter`는 불변 클래스이므로, 새로운 `WordCounter` 클래스를 어떤 상태로 생성할 것인지 정의
+- 스트림을 탐색하면서 **새로운 문자**를 찾을 때마다 `accumulate` 메서드를 호출
+- `combine`은 문자열 서브 스트림을 처리한 `WordCounter` 결과를 합침
+  - `WordCounter`의 내부 `counter` 값을 합침
+- 문자 스트림의 리듀성 연산을 직관적으로 구현 가능
+  ```java
+  private int countWords(Stream<Character> stream) {
+    WordCounter wordCounter = stream.reduce(new WordCounter(0, true), WordCounter::accumulate, WordCounter::combine);
+    return wordCounter.getCounteR();
+  }
+  ```
+
+#### WordCounter 병렬로 수행하기
+- 단순히 병렬 스트림으로 전환하면, 결과가 올바르지 않음
+  - 원래의 문자열을 **임의의 위치**에서 둘로 나누다보니
+  - 예상치 못하게, 하나의 단어를 둘로 나누는 상황도 존재
+- `순차 스트림` -> `병렬 스트림`으로 전환 시
+  - **스트림 분할 위치**에 따라 다른 결과 반환
+- 문제 해결 방법
+  - 문자를 **임의의 위치가 아닌 단어가 끝나느 위치에서만 분할**
+- 단어 끝에서만 문자열을 분할하는 `문자 Spliterator`가 필요
+
+##### CODE.7.6. WordCounterSpliterator
+```java
+class WordCounterSpliterator implements Spliterator<Character> {
+  private final String string;
+  private int currentChat = 0;
+  public WordCounterSpliterator(String string) {
+    this.string = string;
+  }
+
+  @Override
+  public boolean tryAdvance(Consumer<? supter Character> action) {
+    action.accept(string.charAt(currentChat++)); // 현재 문자 소비
+    return currentChar < string.length(); // 소비할 문자가 남아있으면 true
+  }
+  
+  @Override
+  public Spliterator<Character> trySplit() {
+    int currentSize = string.length() - currentChar;
+    if (currentSize < 10) {
+      return null; // 파싱할 문자열을 순차 처리할 수 있을 만큼 충분히 작아졌음을 알리는 null
+    }
+
+    // 파싱할 문자열의 중간을 분할 위치로 설정한다
+    for(int splitPos = currentSize / 2 + currentChar; splitPos < string.length(); splitPos++) {
+      // 다음 공백이 나올 때까지 분할 위치를 뒤로 이동
+      if (Character.isWhitespace(string.charAt(splitPos))) {
+        // 처음부터 분할 위치까지 문자열을 파싱할 새로운 WordCounterSpliterator를 생성
+        new WordCounterSpliterator(string.substring(currentChar, splitPos));
+        currentChar = splitPos; // WordCounterSpliterator의 시작 위치를 분할 위치로 설정
+        return spliterator; // 공백을 찾았고 문자열을 분리했으므로 루프 종료
+      }
+    }
+    return null;
+  }
+
+  @Override
+  public long estimateSize() {
+    return string.length() - currentChar;
+  }
+
+  @Override
+  public int characteristics() {
+    return ORDERED + SIZED + SUBSIZED + NON-NULL + IMMUTABLE;
+  }
+}
+```
+- 분석 대상 문자열로 `Spliterator`를 생성한 다음
+  - 현재 탐색중인 문자를 가리키는 인덱스를 이용하여, 모든 문자를 반복 탐색
+- `WordCounterSpliterator` 메서드 설명
+  - `tryAdvance`
+    - 문자열에서 현재 인덱스에 해당하는 문자를 `Consumer`에 제공한 다음, 인덱스 증가
+    - `Consumer`는 스트림을 탐색하면서 적용해야하는 **함수 집합**이
+      - 작업을 처리할 수 있도록 소비한 문자를 전달하는 자바 내부 클래스
+    - 스트림을 탐색하면서 하나의 리듀싱 함수, `WordCounter::accumulate` 메서드 적용
+    - `tryAdvance` 메서드는 새로운 **커서 위치**가 **전체 문자열 길이**보다 작으면 참을 반환,
+      - 이는 반복 탐색할 문자가 **남아 있음을 의미**
+  - `trySplit`
+    - 반복될 자료구조를 분할하는 로직을 포함하는 중요 메서드
+    - `RecursiveTask::compute` 메서드에서 했던 것처럼
+      - 분할 동작을 중단할 **한계** 설정
+    - 실제 어플리케이션에서는 너무 많은 태스크를 생성하지 않도록 **한계값**을 적당히 높게 설정
+    - 남은 문자열이 한계값 이하라면 `null`반환 => **분할 중단**
+    - 분할이 필요한 상황일 경우
+      - 파싱해야할 문자열 청크의 **중간 위치**를 기준으로 분할하도록 지시
+    - 단어 중간을 분할하지 않도록 **빈 문자**가 나올때까지 분할 위치 이동
+    - 분할할 위치를 찾았다면 새로운 `Spliterator`를 만듦
+    - 새로 만든 `Spliterator`는 `currentChar ~ 분할된 위치`까지의 문자열을 탐색
+  - `estimateSize`
+    - 탐색해야할 요소의 개수
+    - `Spliterator`가 파싱할 문자열 전체 길이 `string.length()`와 현재 반복중인 위치 `currentChar`의 차이
+  - `characteristics`
+    - `ORDERED` : 문자열의 등장 순서가 유의미
+    - `SIZED` : estimatedSize 메서드의 반환값이 정확함
+    - `SUBSIZED` : `trySplit`으로 생성된 `Spliterator`도 정확한 크기
+    - `NONNULL` : 문자열에 `null`문자가 존재하지 않음
+    - `IMMUTABLE` : 문자열 자체가 **불변 클래스**이므로, 문자열을 파싱하면서 **속성이 추가되지 않음**
+
+#### WordCounterSpliterator의 활용
+- 병렬 스트림에 활용
+  ```java
+  Spliterator<Character> spliterator = new WordCounterSpliterator(SENTENCE);
+  Stream<Character> stream = StreamSupport.stream(spliterator, true);
+
+  System.out.println("Found " + countWords(stream) + " words");
+  ```
+- `Spliterator`는
+  - 첫 번째 탐색 시점, 첫 번째 분할 시점, 첫 번째 예상 크기 요청 시점에 **소스 바인딩**이 가능
+  - 이와 같은 동작을 **늦은 바인딩 Spliterator**라고 부름
+
+## 7.4. 마치며
+- **내부 반복**을 이용하면, 명시적으로 다른 스레드를 사용하지 않고도 **스트림 병렬 처리** 가능
+- 간단하게 **스트림**을 **병렬**로 처리할 수 있지만
+  - **병렬 처리가 빠른것은 아님**
+- 병렬 소프트웨어 **동작 방법**과 성능은 직관적이지 않을 때가 많으므로
+  - 병렬 처리를 사용했을 때 **성능을 직접 측정해야 함**
+- **병렬 스트림**으로 데이터 집합을 **병렬 실행**할 때
+  - 특히 처리해야할 데이터가 아주 많거나
+  - 각 요소를 처리하는데 오랜 시간이 걸릴 때
+    - 성능을 높일 수 있음
+- 가능하면 **기본형 특화 스트림**을 사용하는 등
+  - **올바른 자료구조 선택**이 `어떤 연산을 병렬로 처리하는 것보다` 성능적으로 큰 영향을 미칠 수 있음
+- `Fork/Join Framework`에서는 **병렬화 할 수 있는 태스크**를 **작은 태스크**로 분할한 다음,
+  - 분할된 태스크를 각각의 **스레드**로 실행하며
+  - **서브 태스크** 각각의 결과를 합쳐 **최종 결과**를 생산
+- **Spliterator**는 탐색하려면 데이터를 포함하는 스트림을
+  - **어떻게 병렬화 할 것인지 정의**
