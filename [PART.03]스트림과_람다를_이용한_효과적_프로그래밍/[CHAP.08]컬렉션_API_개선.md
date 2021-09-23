@@ -158,3 +158,204 @@
   // java 8 기능 활용
   referenceCodes.replaceAll(code -> Character.toUpperCase(code.charAt(0)) + code.substring(1));
   ```
+
+## 8.3. 맵 처리
+- `java 8`에서는 `Map` 인터페이스에 몇 가지 **default method**가 추가됨
+
+### 8.3.1. forEach 메서드
+- 맵에서 **key, value**를 **반복**하며 확인하는 작업은, 번거로운 작업
+- 실제로는 `Map.Entry<K,V>` 반복자를 활용하여, 맵의 **항목 집합**을 반복할 수 있음
+  ```java
+  for(Map.Entry<String, Integer> entry: ageOfFriends.entrySet()) {
+    String friend = entry.getKey();
+    Integer age = entry.getValue();
+    System.out.println(friend + " is " + age + " years old");
+  }
+
+  // java 8부터 `BiConsumer`(key, value)를 인수로 받는 forEach를 지원
+  ageOfFriends.forEach((friend, age) -> System.out.println(friend + " is " + age + " years old"));
+  ```
+
+### 8.3.2. 정렬 메서드
+- 두 개의 새로운 유틸리티를 활용, 맵의 항목을 `value`또는 `key`를 기준으로 정렬 가능
+  ```java
+  Entry.comparingByValue
+  Entry.comparingByKey
+  ```
+- 예시 코드
+  ```java
+  Map<String, String> favoriteMovies
+                        = Map.ofEntries(entry("Raphael", "Star Wars"),
+                        entry("Cristina", "Matrix"),
+                        entry("Olivia", "James Bond"));
+  
+  favoriteMovies
+    .entrySet()
+    .stream()
+    .sorted(Entry.comparingByKey())
+    .forEachOrdered(System.out::println); // 사람의 이름을 알파벳 순으로 스트림 요소 처리
+  ```
+
+#### HashMap 성능
+- `java 8`에서는 `HashMap`의 내부 구조를 바꿔 성능을 개선함
+- 기존의 맵의 항목은
+  - **키**로 생성한 **해시코드**로 접근할 수 있는 **버켓**에 저장
+  - 많은 키가 같은 해시코드를 반환하는 상황이 되면
+    - `O(n)`의 시간이 걸리는 `LinkedList`로 버킷을 반환해야 하기 때문에
+    - 성능이 저하됨
+- 최근에는 버킷이 너무 커질 경우, `O(log(n))`의 시간이 소요되는
+  - **정렬된 트리**를 이용하여, 동적으로 치환
+  - `충돌이 일어나는 요소 반환 성능을 개선`
+- 단, `key`가 `String, Number` 클래스 같은 `Comparable` 형태여야만 **정렬된 트리**가 지원
+
+### 8.3.3. getOrDefault 메서드
+- 해당되는 키가 존재하지 않을 때, **기본값**을 반환
+- 인수
+  - 첫번째 인수 : `키`
+  - 두번째 인수 : `기본값`
+- 맵에 키가 존재하지 않으면 `기본값` 반환
+- 예시
+  ```java
+  Map<String, String> favoriteMovies = 
+        Map.ofEntries(entry("Raphael", "Star Wars"), entry("Olivia", "James Bond"));
+
+  System.out.println(favoriteMovies.getOrDefault("Olivia", "Matrix"));
+  ```
+- 물론 `value`가 `null`일 경우엔, `getOrDefault`에서도 `null`이 반환됨
+
+### 8.3.4. 계산 패턴
+- 맵에 **키가 존재하는지 여부**에 따라, 특정 동작을 실행하고, 결과를 저장해야하는 상황이 필요한 경우
+- 예시
+  - 키를 이용해 **값 비싼 동작**을 실행하여 얻은 결과를 **캐시**
+  - 키가 존재하면, 굳이 재계산하지 않음
+- 관련 메서드
+  - `computeIfAbsent` : `제공된 키에 해당하는 값이 없으면`(값이 없거나, `null`), 키를 이용해 새 값을 계산하여 맵에 추가
+  - `computeIfPresent` : `제공된 키가 존재하면`, 새 값을 계산하고 맵에 추가
+  - `compute` : 제공된 키로 새 값을 계산하고, 맵에 저장
+- 정보를 **캐싱**할 때, `computeIfAbsent`를 이용해 계산 가능
+- 예시 : 파일 집합의 각 행을 파싱하여 `SHA-256`을 계산
+  - 기존에 이미 데이터 처리시, 다시 계산할 필요가 없음
+  - 맵을 이용해 **캐시**를 구현했을 때,
+    - 다음과 같이 `MessageDigest` 인스턴스로 `SHA-256`의 해시를 계산할 수 있음
+  - 코드
+    ```java
+    Map<String, byte[]> dataToHash = new HashMap<>();
+    MessageDigest messageDigest = MessageDigest.getInstance("SHA-256");
+
+    // 데이터를 반복하면서 결과 캐시 가능
+    lines.forEach(line ->
+      dataToHash.computeIfAbsent(
+                      line, // 맵에서 찾을 키
+                      this::calculateDigest // 키가 존재하지 않을경우 계싼 수행
+    ));
+
+    private byte[] calcutateDigest(String key) { // 헬퍼가 제공된 키의 해시 계산
+      return messageDigest.digest(key.getBytes(StandardCharsets.UTF_8));
+    }
+    ```
+- 예시 : 여러 값을 저장하는 맵을 처리
+  - `Map<K, List<V>>`에 요소를 추가하려면, 항목이 **초기화 되었는지 확인 필요**
+  - `Raphael`에게 줄 영화 목록을 만든다고 가정,
+    ```java
+    String friend = "Raphael";
+    List<String> movies = friendsToMovies.get(friend);
+    if(movies == null) { // 리스트가 초기화 되었는지 확인
+      movies = new ArrayList<>();
+      friendsToMovies.put(friend, movies);
+    }
+    movies.add("Star Wars"); // 영화 추가
+    System.out.println(friendsToMovies);
+
+    // computeIfAbsent를 활용하기
+    friendsToMovies.computeIfAbsent("Raphael", name -> new ArrayList<>()).add("Star Wars");
+    ```
+- `computeIfPresent` 메서드는
+  - 현재 키와 관련된 값이 **맵**에 존재하며, `null`이 아닐때만 새 값을 계산
+  - 값을 만드는 함수가 `null`을 반환하면, 현재 매핑을 **맵에서 제거**
+  - 하지만 매핑 제거시엔, `remove` 메서드를 `override`하는 것이 더 적합
+
+
+### 8.3.5. 삭제 패턴
+- 제공된 키에 해당하는 맵 항목 제거 -> `remove` 메서드
+- `java 8`에서는 키가 특정한 값과 연관되었을 때만 **항목**을 제거하는 **오버르도 버전 메서드**를 제공
+- 기존 코드와 비교
+  ```java
+  String key = "Raphael";
+  String value = "Jack Reacher 2";
+  if (favoriteMovies.containsKey(key) ** Object.equals(favoriteMovies.get(key), value)) {
+    favoriteMovies.remove(key);
+    return true;
+  } else {
+    return false;
+  }
+
+  // 간결하게 구현
+  favoriteMovies.remove(key, value);
+  ```
+
+### 8.3.6. 교체 패턴
+- 맵의 **항목을 바꾸기**
+  - `replaceAll` : `BiFunction`을 적용한 결과, 항목의 값을 교체
+  - `replace` : 키가 존재하면, 맵의 값을 변경. 특정 값으로 매핑되었을 때만 값을 교체하는 **overload**버전도 존재
+- 코드
+  ```java
+  Map<String, String> favoriteMovies = new HashMap<>(); // replaceAll을 적용하기 위해, 바꿀 수 있는 맵을 지정
+  favoriteMovies.put("Raphael", "Star Wars");
+  favoriteMovies.put("Olivia", "james bond");
+  favoriteMovies.replaceAll((friend, movie) -> movie.toUpperCase());
+  System.out.println(favoriteMovies);
+  ```
+
+### 8.3.7 합침
+- 예시 : 두 그룹의 연락처를 포함하는 **두 개의 맵을 합치기**
+- `putAll`을 사용할 수 있음
+  ```java
+  Map<String, String> family = Map.ofEntries(
+    entry("Teo", "Star Wars"), entry("Cristina", "James Bond"));
+  Mapo<String, String> friends = Map.ofEntries(
+    entry("Raphael", "Star Wars"));
+  Map<String, String> everyone = new HashMap<>(family);
+  everyone.putAll(friends); // friends의 항목을 모두 everyone으로 복사
+  System.out.println(everyone);
+  ```
+- `중복된 키가 없다면`, 위 코드는 정상 동작
+- 좀 더 유연하게 합치려면 `merge` 메서드를 사용해야 함
+  - 이 메서드는, 중복된 키를 어떻게 합칠지에 대한 `BiFunction`을 인수로 받음
+  ```java
+  Map<String, String> family = Map.ofEntries(
+    entry("Teo", "Star Wars"), entry("Cristina", "James Bond"));
+  Map<String, String> friends = Map.ofEntries(
+    entry("Raphael", "Star Wars"), entry("Cristina", "Matrix"));
+  
+  Map<String, String> everyone = new HashMap<>(family);
+  friends.forEach((k, v) -> 
+    everyone.merge(k, v, (movie1, movie2) -> movie1 + " & " + movie2)); // 중복된 키가 있으면 두 값을 연결
+  System.out.println(everyone);
+  ```
+- javadoc의 `merge` 메서드
+  - 지정된 키와 연관된 값이 없거나, 값이 `null`이면
+    - 키를 `null`이 아닌 다른 값과 연결 함
+  - 아니면 `merge`는 연결된 값을 주어진 매핑 함수의 **결과**로 대치하거나
+    - 결과가 `null`이면 항목을 **제거** 함
+- `merge`를 이용해 초기화 검사를 수행하기
+  - 예시 : `영화를 몇 회 시청했는지 기록하는 맵`
+    ```java
+    Map<String, Long> moviesToCount = new HashMap<>();
+    String movieName = "JamesBond";
+    long count = moviesToCount.get(movieName);
+    if(count == null) {
+      moviesToCount.put(movieName, 1);
+    } else {
+      moviesToCount.put(movieName, count + 1);
+    }
+
+    // merge를 통해 구현
+    moviesToCount.merge(movieName, 1L, (key, count) -> count + 1L);
+    ```
+    - `merge`의 두번째 인수는 `1L`
+    - `javadoc`에 따르면
+      - **키와 연관된 기존 값**에 합쳐질 `null`이 아닌 값 또는
+      - 값이 없거나 키에 `null`값이 관련되어 있다면
+        - 이 값을 키에 연결
+    - 키의 반환값이 `null`이므로 처음에는 `1`이 사용됨
+      - 그 다음부터는 값이 `1`로 초기화 되어 있으므로, `Bifunction`을 적용해 값이 증가됨
