@@ -359,3 +359,68 @@
         - 이 값을 키에 연결
     - 키의 반환값이 `null`이므로 처음에는 `1`이 사용됨
       - 그 다음부터는 값이 `1`로 초기화 되어 있으므로, `Bifunction`을 적용해 값이 증가됨
+
+## 8.4. 개선된 ConcurrentHashMap
+- `ConcurrentHashMap`
+  - 동시성 친화적, 최신 기술을 반영한 `HashMap` 버전 
+  - 내부 자료구조의 특정 부분만 잠구어
+    - **동시 추가/갱신**작업을 허용함
+  - 동기화된 `HashTable` 버전에 비해
+    - 읽기 쓰기 권한 성능이 월등함
+  - 표준 `HashMap`연산은 **비동기**로 동작
+
+### 8.4.1. 리듀스와 검색
+- 세가지 새로운 연산 지원
+  - `ForEach` : 각 `key, value`싸엥 주어진 액션을 실행
+  - `reduce` : 모든 `key, value` 쌍을 제공된 **리듀스 함수**를 이용해 결과로 합침
+  - `search` : `null`이 아닌 값을 반환할 때까지 각 `key, value` 쌍에 함수를 적용
+- 다음처럼 네가지 연산 형태 지원
+  - `key, value`로 연산 : `forEach, reduce, search`
+  - `key` 연산 : `forEachKey, reduceKeys, searchKeys`
+  - `value` 연산 : `forEachValue, reduceValues, searchValues`
+  - `Map.Entry` 객체로 연산 : `forEachEntry, reduceEntries, searchEntries`
+- 위 연산들 모두 `ConcurrentHashMap`의 상태를 **잠그지 않고 수행** 
+- 위 연산에 제공한 함수는 계산이 진행되는 동안
+  - 바뀔 수 있는 객체, 값, 순서 등에 의존하지 말아야 함
+- 이들 연산에 **병렬성 기준값**(threshold)를 지정해야 함
+  - **맵의 크기**가 주어진 기준값보다 작다면, **순차적**으로 연산 진행
+- 기준값
+  - `1`; 공통 `threadpool`을 이용해, **병렬성**을 극대화
+  - `Long.MAX_VALUE`; **한 개의 스레드**로 연산
+- 소프트웨어 아키텍처가, 고급 수준의 자원 활용 최적화를 사용하고 있지 않다면,
+  - **기존값 규칙을 따르는 것이 좋음**
+- 예시 : `reduceValues`를 사용한 맵의 최댓값 찾기
+  ```java
+  ConcurrentHashMap<String, Long> map = new ConcurrentHashMap<>();
+  long parallelismThreshold = 1;
+  Optional<Integer> maxValue =
+                    Optional.ofNullable(map.reduceValues(parallelismThreshold, Long::max));
+  ```
+- `int, long, double`등의 기본값에는, 전용 `each reduce` 연산이 제공됨
+  - `reduceValuesToInt, reduceKeyToLong`을 사용하게 되면 **박싱 작업 필요 없음**
+  - 효율적인 처리 가능
+
+
+### 8.4.2. 계수
+- 맵의 **매핑 개수**를 반환하는 `mappingCount`연산 지원
+- 기존의 `size` 메서드 대신, 새 코드에서는 `int`를 반환하는 `mappingCount`를 사용하는 것이 좋음
+  - 매핑의 개수가 `int`범위를 넘어서는 **이후 상황 대처 가능**
+
+### 8.4.3. 집합뷰
+- `ConcurrentHashMap`을 집합 뷰로 반환하는 `KeySet`이라는 새 메서드 제공
+- 맵을 바꾸면 집합도 바뀌고,
+  - 반대로 집합을 바꾸면 **맵**이 영향을 받음
+- `newKeySet`이라는 메서드를 통해
+  - `ConcurrentHashMap`으로 유지되는 **집합**을 만들 수 있음
+
+## 8.5. 마치며
+- `java 9`는 적의 원소를 포함하며
+  - 바꿀 수 없는 리스트, 집합, 맵을 쉽게 만들 수 있도록
+  - `List.of, Set.of, Map.of, Map.ofEntiries` 등의 **컬렉션 팩토리 지원**
+- 이들 컬렉션 팩토리가 반환한 객체는 **만들어진 다음 변경 불가**
+- `List` 인터페이스는 `removeIf, replaceAll, sort` 세 가지 **디폴드 메서드** 제공
+- `Set` 인터페이스는 `removeIf` **디폴트 메서드** 제공
+- `Map` 인터페이스는
+  - 자주 사용하는 패턴과 버그 방지를 위해 다양한 **디폴트 메서드** 제공
+- `ConcurrentHashMap`은 `Map`을 상속받은 새 디폴트 메서드를 지원함과 동시에
+  - **스레드 안전성**도 제공
