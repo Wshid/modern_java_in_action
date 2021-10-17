@@ -91,3 +91,69 @@
     ```
 - 위와 같은 `Netbeans`나 `Intellij` 등을 포함한 대부분의 `IDE`에서 제공하는
   - 리팩터링 기능을 이용하면, 위 문제가 해결됨
+
+### 9.1.3. 람다 표현식을 메서드 참조로 리팩터링 하기
+- **람다 표현식** 대신 **메서드 참조**를 사용하면 **가독성**을 높일 수 있음
+  - 메서드 참조의 **메서드명**으로 코드의 참조 의도를 알릴 수 있음
+- 예시 코드
+  ```java
+  Map<CaloricLevel, List<Dish>> dishesByCaloricLevel =
+      menu.stream().collect(groupingBy(Dish::getCaloricLevel)); // 람다 표현식을 메서드로 추출
+
+  public class Dish {
+    public CaloricLevel getCaloricLevel() {
+      if (this.getCalories() <= 400) return CaloricLevel.DIET;
+      else if (this.getCalories() <= 700) return CaloricLevel.NORMAL;
+      else return CaloricLevel.FAT;
+    }
+  }
+  ```
+- `comparing`과 `maxBy` 같은 **정적 핼포 메서드**를 활용해도 좋음
+  - 이들은 **메서드 참조**와 조화를 이루도록 설계됨
+  ```java
+  inventory.sort(
+    (Apple a1, Apple a2) -> a1.getWeight().compareTo(a2.getWeight())); // 비교 구현에 신경써야 함
+  inventory.sort(comparing(Apple::getWeight)); // 코드가 문제 자체 설명
+  ```
+- `sum, maximum`등 자주 사용하는 **리듀싱 연산**은
+  - 메서드 참조와 함께 사용할 수 있는 **내장 헬퍼 메서드**를 제공
+- 최댓값이나, 합계를 사용할 때 **람다 표현식**과 **저수준 리듀싱 연산**을 조합하는 것보다
+  - `Collectors API`를 사용하면 코드의 의도가 명확해짐
+  ```java
+  int totalCalories =
+    menu.stream().map(Dish::getCalories)
+                  .reduce(0, (c1, c2) -> c1 + c2);
+  
+  // 내장 컬렉터 사용, 코드 자체로 명확히 설명 가능
+  // summingInt 사용(자신이 어떤 동작을 수행하는지 메서드 이름으로 설명 가능)
+  int totalCalories = menu.stream().collect(summingInt(Dish::getCalories));
+  ```
+
+### 9.1.4. 명령형 데이터 처리를 스트림으로 리팩터링하기
+- 이론적으로는 `반복자`를 이용한 모든 컬렉션 처리 코드를
+  - **스트림 API**로 변경하여야 함
+    - 데이터 처리 파이프라인의 의도를 더 명확히 보여주기 때문
+- 스트림은
+  - `short-circuit`, `lazyness`와 `multicore`에서 사용할 수 있는 특징을 제공
+- 두가지 패턴(`필터링`과 `추출`)를 혼합한 코드
+  - 전체 구현을 살펴야, 의도 파악 가능
+  - 또한 코드를 병렬시키기에 매우 어려움
+    ```java
+    List<String> dishNames = new ArrayList<>();
+    for(Dish dish: menu) {
+      if(dish.getCalories() > 300) {
+        dishNames.add(dish.getName());
+      }
+    }
+    
+    // Stream API로 작성, 직접적으로 기술 및 병렬화 가능
+    map.parallelStream()
+        .filter(d -> d.getCalories() > 300)
+        .map(Dish::getName)
+        .collect(toList());
+    ```
+- 명령형 코드의 `break`, `continue`, `return` 등의 **제어 흐름문**을 모두 분석해서
+  - 같은 기능을 수행하는 스트림 연산으로 유추해야 하므로
+  - **명령형 코드 -> 스트림 API** 작업은, 쉬운일이 아님
+- 이 작업을 가능하도록 하는 몇가지 도구 등이 존재
+  - `LambdaFicator` 등
