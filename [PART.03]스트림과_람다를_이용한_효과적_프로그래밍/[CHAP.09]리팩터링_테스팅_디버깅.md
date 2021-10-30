@@ -233,3 +233,77 @@
 #### 결론
 - `조건부 연기실행`과 `실행 어라운드`를 통해
   - 기존 코드의 **가독성**과 **유연성**을 개선하는 다양한 기법 확인
+
+## 9.2. 람다로 객체지향 디자인 패턴 리팩터링 하기
+- 다양한 패턴을 유형별로 정리한 것이 **디자인 패턴**
+  - 공통적인 소프트웨어 문제를 설계할 때 재사용 가능한, 검증된 청사진 제공
+
+### 9.2.1. 전략
+- 전략 패턴은
+  - `한 유형의 알고리즘`을 보유한 상태에서
+  - `Runtime`에 적절한 알고리즘을 선택하는 기법
+- 다양한 기준은 갖는 **입력값**을 검증하거나
+  - 다양한 **파싱 방법**을 사용하거나
+  - **입력 형식**을 설정하는 등
+  - 다양한 시나리오에서 사용 가능
+- 전략 패턴의 구성
+  - 알고리즘을 나타내는 Interface(`Strategy Interface`)
+  - 다양한 알고리즘을 나타내는 한 개 이상의 인터페이스 구현(`ConcreteStrategyA`, `ConcreteStrategyB`)
+  - 전략 객체를 사용하는 한 개 이상의 `클라이언트`
+
+#### 예시: 오직 소문자 또는 숫자로 이루어져야하는 등, 텍스트 입력이 다양한 조건에 맞게 포맷되어 있는지 검증
+- `String` 문자열을 검증하는 인터페이스
+  ```java
+  public interface ValidationStrategy {
+    boolean execute(String s);
+  }
+  ```
+- 위에서 정의한 인터페이스를 구현하는 `클래스`를 하나 이상 정의
+  ```java
+  public class IsAllLowerCase implements ValidationStrategy {
+    public boolean execute(String s) {
+      return s.matches("[a-z]+");
+    }
+  }
+
+  public class IsNumeric implements ValidationStrategy {
+    public boolean execute(String s) {
+      return s.matches("\\d+");
+    }
+  }
+  ```
+- 구현한 클래스를 `다양한 검증 전략`으로 활용
+  ```java
+  public class Validator {
+    private final ValidationStrategy strategy;
+    
+    public Validator(ValidationStrategy v) {
+      this.strategy = v;
+    }
+
+    public boolean validate(String s) {
+      return stategy.execute(s);
+    }
+  }
+
+  Validator numericValidator = new Validator(new IsNumeric());
+  boolean b1 = numericValidator.validate("aaaa"); // false
+  Validator lowerCaseValidator = new Validator(new IsAllLowerCase());
+  boolean b2 = lowerCaseValidator.validate("bbbb"); // true
+  ```
+
+#### 람다 표현식 사용
+- `ValidationStrategy`는 **함수형 인터페이스**며
+  - `Predicate<String>`과 같은 **함수 디스크립터**를 갖고 있음을 파악
+- 다양한 전략을 구현하는 새로운 클래스 구현 없이, **람다 표현식**을 전달하면 코드가 간단해짐
+- 개선 코드
+  ```java
+  Validator numericValidator = new Validator((String s) -> s.matches("[a-z]+"));
+  boolean b1 = numericValidator.validate("aaaa");
+  Validator lowerCaseValidator = new Validator((String s) -> s.matches("\\d+"));
+  boolean b2 = lowerCaseValidator.validate("bbbb");
+  ```
+- 람다 표현식을 활용하면 **전략 디자인 패턴**에서 발생하는 자잘한 코드 제거 가능
+- 람다 표현식은 **코드 조각**(전략)을 **캡슐화**
+- **람다 표현식**으로 **전략 디자인 패턴**을 대체할 수 있음
+  - 위와 비슷한 문제에서는 **람다 표현식**을 사용할 것
