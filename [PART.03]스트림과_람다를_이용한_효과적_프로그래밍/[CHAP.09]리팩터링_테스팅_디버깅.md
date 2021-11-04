@@ -307,3 +307,107 @@
 - 람다 표현식은 **코드 조각**(전략)을 **캡슐화**
 - **람다 표현식**으로 **전략 디자인 패턴**을 대체할 수 있음
   - 위와 비슷한 문제에서는 **람다 표현식**을 사용할 것
+
+### 9.2.2. 템플릿 메서드
+- 알고리즘 개요를 제시한 다음
+  - 알고리즘의 일부를 고칠 수 있는 **유연함**을 제공해야할 때
+  - **템플릿 메서드 디자인 패턴**을 사용
+- `이 알고리즘을 사용하고 싶은데, 그대로는 안 되고 조금 고쳐야 하는` 상황
+- 예시: 온라인 뱅킹 어플리케이션 구현
+- 추상 클래스: 온라인 뱅킹 어플리케이션의 동작 정의
+  ```java
+  abstract class OnlineBanking {
+    public void processCustomer(int id) {
+      Customer c = Database.getCustomerWithId(id);
+      makeCustomerHappy(c);
+    }
+    abstract void makeCustomerHappy(Customer c);
+  }
+  ```
+  - `processCustomer` 메서드: 온라인 뱅킹 알고리즘이 해야할 일
+    - 주어진 고객 ID를 이용해 고객 만족
+  - 각각의 지점은 `OnlineBanking` 클래스를 상속받아 `makeCustomerHappy` 메서드가 원하는 동작을 수행하도록 구현
+
+#### 람다 표현식 사용
+- 알고리즘의 개요를 만든 이후, 구현자가 원하는 기능을 추가하기
+- `makeCustomerHappy`의 메서드 시그니처와 일치하도록 
+  - `Consumer<Customer>` 형식을 갖는 두번째 인수를 `processCustomer`에 추가
+  ```java
+  public void processCustomer(int id, Consumer<Customer> makeCustomerHappy) {
+    Customer c = Database.getCustomerWithId(id);
+    makeCustomerHappy.accept(c);
+  }
+  ```
+- 이제 `onlineBanking` 클래스를 상속받지 않고, 직접 람다 표현식 전달 가능
+  ```java
+  new OnlineBankingLambda().processCustomer(1337, (Customer c) -> System.out.println("Hello " + c.getName()));
+  ```
+
+### 9.2.3. 옵저버
+- 여러 이벤트가 발생했을 때
+  - 한 객체(`subject`, 주체)가 다른 객체 리스트(`observer`)에
+  - 자동으로 **알림**을 보내야하는 상황에서
+    - **옵저버 디자인 패턴**을 사용
+- `GUI` 어플리케이션에서 자주 등장
+- 버튼 같은 `GUI` 컴포넌트에 옵저버를 설정할 수 있음
+- 그리고 사용자가 **버튼**을 클릭하면, **옵저버**에게 알림이 전달되고
+  - 정해진 동작이 수행됨
+- 예시로, 주식의 가격 변동에 반응하는 다수에 거래자 예제에서도 옵저버 패턴 사용 가능
+- 옵저버 패턴 동작 원리
+  - 트위터 같은 **커스터마이즈된 알림 시스템**을 설계하고 구현 가능
+- 옵저버를 그룹화할 `Observer` 인터페이스 필요
+  - 새로운 트윗이 있을 때 `Feed`가 호출할 수 있도록 `notify` 메서드 제공
+  ```java
+  interface Observer {
+    void notify(String tweet);
+  }
+  ```
+- 트윗에 포함된 다양한 키워드에 대한 다른 동작을 수행할 `여러 옵저버 정의`
+  ```java
+  class NYTimes implements Observer {
+    public void notify(String tweet) {
+      if(tweet != null && tweet.contains("money")) {
+        System.out.println("Breaking news in NY! " + tweet);
+      }
+    }
+  }
+  
+  class Guardian implements Observer {
+    public void notify(String tweet) {
+      if(tweet != null && tweet.contains("queen")) {
+        System.out.println("Yet more news from London... " + tweet);
+      }
+    }
+  }
+  ```
+- 주제도 구현, `Subject` 인터페이스 정의
+  ```java
+  interface Subject {
+    void registerObserver(Observer o);
+    void notifyObservers(String tweet);
+  }
+  ```
+- 주제는 `registerObserver` 메서드로, 새로운 옵저버를 등록한 다음
+  - `notifyObservers` 메서드로 트윗의 옵저버에 이를 알림
+  ```java
+  class Feed implements Subject {
+    private final List<Observer> observers = new ArrayList<>();
+    
+    public void registerObserver(Observer o) {
+      this.observers.add(o);
+    }
+
+    public void notifyObservers(String tweet) {
+      observers.forEach(o -> o.notify(tweet));
+    }
+  }
+  ```
+- 구현은 간단
+  - `Feed`는 트윗을 받았을 때, 알림을 보낼 옵저버 리스트 유지
+- 주제와 옵저버를 연결하는 데모 어플리케이션 제작 가능
+  ```java
+  Feed f = new Feed();
+  f.registerObserver(new NYTimes());
+  f.registerObserver(new Guardian());
+  f.notifyObservers("The queen ...");
+  ```
