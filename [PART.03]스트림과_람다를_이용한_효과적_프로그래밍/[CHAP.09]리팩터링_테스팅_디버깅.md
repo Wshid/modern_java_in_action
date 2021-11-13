@@ -411,3 +411,150 @@
   f.registerObserver(new Guardian());
   f.notifyObservers("The queen ...");
   ```
+
+#### 람다 표현식 사용하기
+- `Observer` 인터페이스를 구현하는 **모든 클래스**는, 하나의 메서드 `notify`를 구현
+- 트윗이 도착했을 때, 어떤 동작을 수행할지 감싸는 코드를 구현
+- 세 개의 옵저버를 명시적으로 인스턴스화 하지 않고
+  - 람다 표현식을 직접 전달하여, 실행할 동작을 지정
+- 코드
+  ```java
+  f.registerObserver((String tweet) -> {
+    if(tweet != null && tweet.contains(" money ")) {
+      System.out.println("Breaking news in NY! " + tweet);
+    }
+  })
+  f.registerObserver((String tweet) -> {
+    if(tweet != null && tweet.contains(" queen ")) {
+      System.out.println("Yet more new from London..." + tweet);
+    }
+  });
+  ```
+- 람다 표현식을 항상 사용해야 하는가 -> No
+  - 위와 같은 상황에서는, 실행할 동작이 `비교적 간단`하므로
+  - 람다표현식으로 불필요한 코드를 제거하는 것이 바람직
+- 하지만 `Observer`가 상태를 가지며, 여러 메서드를 정의하는 등 복잡할 경우
+  - 람다 표현식보다 **기본의 클래스 구현방식**을 구현하는 게 더 바람직 할 수 있음
+
+### 9.2.4. 의무 체인
+- 작업 처리 객체의 **체인**(동작 체인 등)을 만들 때는 **의무 체인 패턴**을 사용
+- 한 객체가 어떤 작업을 처리한 이후 `다른 객체로 결과 전달`하고,
+  - 다른 객체도 `작업 처리`이후, 다른 객체로 `전달`하는 식
+- 일반적으로 `다음으로 처리할 객체 정보`를 유지하는 필드를 포함하는 **작업 처리 추상 클래스**로
+  - **의무 체인 패턴**을 구상
+- 작업 처리 객체가 자신의 작업을 끝냈으면, 다음 처리 작업 객체로 결과 전달
+- 코드
+  ```java
+  public abstract class ProcessingObject<T> {
+    protected ProcessingObject<T> successsor;
+    public void setSuccessor(ProcessingObject<T> sucessor) {
+      this.successor = successor;
+    }
+    public T handle(T input) {
+      T r = handleWork(input);
+      if(successor != null) {
+        return successor.handle(r);
+      }
+      return r;
+    }
+    abstract protected T handleWork(T input);
+  }
+  ```
+- **9.2.2**의 **템플릿 메서드 디자인 패턴**이 사용됨
+- `handle`은 일부 작업을 어떻게 처리해야할 지 전체적으로 기술
+- `ProcessingObject` 클래스를 상속받아 `handleWork` 메서드를 구현하여, 다양한 종류의 작업 처리 객체 생성 가능
+- 예시: 텍스트를 처리하는 객체
+  ```java
+  public class HeaderTextProcessing extends ProcessingObject<String> {
+    public String handleWork(String text) {
+      return "From Raoul, Mario and Alan: " + text;
+    }
+  }
+
+  public class SpellCheckerProcessing extends ProcessingObject<String> {
+    public String handleWork(String text) {
+      return text.replaceAll("labda", "lambda");
+    }
+  }
+
+  // 두 작업 처리 객체를 연결하여 작업 체인 생성 가능
+  ProcessingObject<String> p1 = new HeaderTextProcessing();
+  ProcessingObject<String> p2 = new SpellCheckerProcessing();
+  p1.setSuccessor(p2); // 두 작업 처리 객체 연결
+  String result = p1.handle("Aren't labdas really sexy?!!");
+  System.out.println(result);
+  ```
+
+#### 람다 표현식 사용
+- **함수 체인**과 유사함
+- 작업 처리 객체를 `Function<String, String>`
+  - 더 정확히 표현하자면 `UnaryOperator<String>` 형식의 **인스턴스**로 표현 가능
+- `andThen` 메서드로 이들을 조합하여 체인 구성 가능
+- 코드
+  ```java
+  UnaryOperator<String> headerProcessing =
+    (String text) -> "From Raoul, Mario and Alan: "+ text; // 첫 번째 작업 처리 객체
+  UnaryOperator<String> spellCheckerProcessing =
+    (String text) -> text.replaceAll("labda", "lambda"); // 두 번째 작업 처리 객체
+  Function<String, String> pipeline =
+    headerProcessing.andThen(spellCheckerProcessing); // 동적 체인으로 두 함수 조합
+  String result = pipeline.apply("Aren't labdas really sexy?!!");
+  ```
+
+### 9.2.5. 팩토리
+- `인스턴스화 로직`을 클라이언트에 노출하지 않고, 객체를 만들 때
+  - **팩토리 디자인 패턴**을 사용
+- 코드
+  ```java
+  public class ProductFactory {
+    public static Product createProduct(String name) {
+      switch(name){
+        case "loan": return new Loan();
+        case "stock": return new Stock();
+        case "bond": return new Bond();
+        default: throw new RuntimeException("No such product" + name);
+      }
+    }
+  }
+
+  // 클라이언트 호출 코드
+  Product p = ProductFactory.createProduct("loan");
+  ```
+  - `Loan, Stock, Bond` 모두 `Product`의 `Subtype`
+  - `createProduct` 메서드는 메서드의 **생산된 상품**을 설정하는 로직 포함 가능
+
+#### 람다 표현식 사용
+- 생성자도 **메서드 참조**처럼 접근 가능
+- 예시: `Loan`의 생성자 코드
+  ```java
+  Supplier<Product> loanSupplier = Loan::new;
+  Loan loan = loanSupplier.get();
+
+  // 상품명을 생성자로 연결하는 Map을 만들어 코드 재구현 가능
+  final static Map<String, Supplier<Product>> map = new HashMap<>();
+  static {
+    map.put("loan", Loan::new);
+    map.put("stock", Stock::new);
+    map.put("bond", Bond::new);
+  }
+
+  // `Map`을 이용하여 **팩토리 디자인 패턴**에서 했던 것처럼, 다양한 상품의 인스턴스화 가능
+  public static Product createProduct(String name) {
+    Supplier<Product> p = map.get(name);
+    if(p != null) return p.get();
+    throw new IllegalArgumentException("No such product " + name);
+  }
+  ```
+- 단, 팩토리 메서드 `createProduct`가 **상품 생성자**로
+  - **여러 인수를 전달하는 과정에서는 이 기법 적용 어려움**
+  - 단순한 `Supplier` 함수형 인터페이스로는 문제 해결 불가
+- 예시로, 세가지의 인수(`Integer 2, String 1`)을 받는 **상품의 생성자**가 있다면,
+  - 세 인수를 지원하려면 `TriFunction`이라는 특별한 **함수형 인터페이스**를 만들어야 함
+  - `Map`의 시그니처가 복잡해짐
+  - 코드
+    ```java
+    public interface TriFunction<T, U, V, R> {
+      R apply(T t, U u, V v);
+    }
+    Map<String, TriFunction<Integer, Integer, String, Product>> map = new HashMap<>();
+    ```
