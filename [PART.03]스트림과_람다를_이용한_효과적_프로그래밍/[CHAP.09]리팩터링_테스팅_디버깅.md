@@ -558,3 +558,118 @@
     }
     Map<String, TriFunction<Integer, Integer, String, Product>> map = new HashMap<>();
     ```
+
+## 9.3. 람다 테스팅
+- **단위 테스팅**(unit testing)
+  - 소스코드의 일부가 예상된 결과를 도출할 것인지에 대한 테스트 케이스 작성
+- 예시: 그래픽 어플리케이션의 일부인 `Point`
+  ```java
+  public class Point {
+    private final int x;
+    private final int y;
+
+    private Point(int x, int y) {
+      this.x = x;
+      this.y = y;
+    }
+    public int getX() { return x; }
+    public int getY() { return y; }
+    public Point moveRightBy(int x) {
+      return new Point(this.x + x, this.y);
+    }
+  }
+  ```
+- 단위 테스트 코드
+  ```java
+  @Test
+  public void testMoveRightBy() throws Exception {
+    Point p1 = new Point(5, 5);
+    Point p2 = p1.moveRightBy(10);
+    assertEquals(15, p2.getX());
+    assertEquals(5, p2.getY());
+  }
+  ```
+
+### 9.3.1. 보이는 람다 표현식의 동작 테스팅
+- `moveRightBy`는 `public`이므로, 위 코드는 문제 없이 작동
+- 단, 람다는 **익명**이므로,
+  - 테스트 코드 이름을 호출할 수 없음
+- 필요하다면, 람다를 **필드**에 저장해서 **재사용**할 수 있으며,
+  - 람다의 로직을 **테스트**할 수 있음
+- 메서드를 호출하는 것처럼 **람다**를 사용할 수 있음
+- 예시: `Point` 클래스에 `compareByXAndThenY`라는 **정적 필드** 추가
+  ```java
+  public class Point {
+    public final static Comparator<Point> compareByXAndThenY =
+      comparing(Point::getX).thenComparing(Point::getY);
+      ...
+  }
+  ```
+- 람다 표현식은 **함수형 인터페이스의 인스턴스**를 생성
+- 따라서 생성된 **인스턴스**의 동작으로 **람다 표현식**을 테스트할 수 있음
+- 예시: `Comparator` 객체 `compareByXAndThenY`에 다양한 인수로 `compare` 메서드를 호출하면서 
+  - 잘 동작하는지 테스트하는 코드
+  ```java
+  @Test
+  public void testComparingTwoPoints() throws Exception {
+    Point p1 = new Point(10, 15);
+    Point p2 = new Point(10, 20);
+    int result = Point.compareByXAndThenY.compare(p1, p2);
+    assertTrue(result < 0);
+  }
+  ```
+
+### 9.3.2. 람다를 사용하는 메서드의 동착에 집중하라
+- 람다의 목표는 **정해진 동작을 다른 메서드에서 사용**할 수 있도록
+  - 하나의 조각으로 **캡슐화**하는 것
+- 그러려면, 세부 구현을 포함하는 **람다 표현식**을 공개하지 말아야 함
+- 람다 표현식을 사용하는 메서드의 **동작**을 테스트 함으로써,
+  - 람다를 공개하지 않으면서도, **람다 표현식 검증**을 할 수 있음
+- 예시: `moveAllPointsRightBy`
+  ```java
+  public static List<Point> moveAllPointsRightBy(List<Point> points, int x) {
+    return points.stream()
+                  // 아래 람다 표현식을 테스트하는 부분이 없음
+                  .map(p -> new Point(p.getX() + x, p.getY())
+                  .collect(toList());
+  }
+  ```
+- 위 코드에 **람다 표현식**을 테스트 하는 부분은 없음
+  - 단순히 `moveAllPointsRightBy`를 구현한 메서드
+- 이제 테스트가 가능
+  ```java
+  @Test
+  public void testMoveAllPointsRightBy() throws Exception {
+    List<Point> points = Arrays.asList(new Point(5, 5), new Point(10, 5));
+    List<Point> expectedPoints = Arrays.asList(new Point(15, 5), new Point(20, 5));
+    List<Point> newPoints = Point.moveAllPointsRightBy(points, 10);
+    assertEquals(expectedPoints, newPoints);
+  }
+  ```
+- 위 단위 테스트에서 보여주듯
+  - `Point::equals`는 중요한 메서드
+- 따라서 `Object::equals`를 그대로 사용하지 않으려면
+  - `equals` 메서드를 적절히 구현해야 함
+
+### 9.3.3. 복잡한 람다를 개별 메서드로 분할하기
+- **9.1.3**처럼 메서드 참조로 바꾸는 것
+- 일반 메서드를 테스트 하듯이 람다 표현식을 테스트 할 수 있음
+
+### 9.3.4. 고차원 함수 테스팅
+- 고차원 함수(`higher-order functions`)
+  - 함수를 인수로 받거나, 다른 함수를 반환하는 메서드
+- 메서드가 `람다를 인수로` 받는다면, 다른 람다로 메서드의 동작을 테스트 할 수 있음
+- 예를 들어, 다양한 `predicate`로 2장에서 만든 `filter` 메서드를 테스트할 수 있음
+  ```java
+  @Test
+  public void testFilter() throws Exception {
+    List<Integer> numbers = Arrays.asList(1, 2, 3, 4);
+    List<Integer> even = filter(numbers, i -> i % 2 == 0);
+    List<Integer> smallerThenThree = filter(numbers, i -> i < 3));
+    assertEquals(Arrays.asList(2, 4), even);
+    assertEquals(Arrays.asList(1, 2), smallerThanThree);
+  }
+  ```
+- 테스트 해야할 메서드가 **다른 함수**를 반환한다면?
+  - `Comparator`에서 살펴봤던 것처럼
+  - **함수형 인터페이스**의 **인스턴스**로 간주하고, 함수의 동작을 테스트할 수 있음
