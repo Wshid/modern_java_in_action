@@ -673,3 +673,114 @@
 - 테스트 해야할 메서드가 **다른 함수**를 반환한다면?
   - `Comparator`에서 살펴봤던 것처럼
   - **함수형 인터페이스**의 **인스턴스**로 간주하고, 함수의 동작을 테스트할 수 있음
+
+## 9.4. 디버깅
+- 문제가 발생하였을 때 아래 내용 확인 필요
+  - stacktrace, logging
+- 람다 표현식과 스트림은 기존의 디버깅 기법을 무력화
+
+### 9.4.1. 스택 트레이스 확인
+- 예외 발생으로 프로그램 실행이 갑자기 중단되었다면
+  - `stack frame`에서 이 정보를 얻을 수 있음
+- 프로그램이 메서드를 호출할 때마다
+  - 프로그램에서의 호출 위치, 호출할 때의 인수값, 호출된 메서드의 지역 변수 등을 포함한 호출 정보
+- 프로그램이이 멈췄다면 프로그램이 어떻게 멈추게 되었는지
+  - `stack trace`를 얻을 수 있음
+- 문제가 발생한 지점에 이르된 메서드 호출 리스트를 얻을 수 있음
+
+#### 람다와 스택 트레이스
+- 유감스럽게도 람다 표현식은 이름이 없기 때문에 조금 복잡한 스택 트레이스가 생성됨
+  ```java
+  // 문제가 발생하는 코드 예시
+  public class Debugging {
+    public static void main(String[] args) {
+      List<Point> points = Arrays.asList(new Point(12, 2), null);
+      points.stream().map(p -> p.getX()).forEach(System.out::println)
+    }
+  }
+  ```
+- 위 코드의 스택 트레이스 코드
+  ```java
+  Exception in thread "main" java.lang.NullPointerException
+    at Debugging.lambda$main$0(Debugging.java:6) // $()은 어떤 의미?
+    ...
+  ```
+- `points` 리스트의 둘째 인수가 `null`이므로 프로그램의 실행이 멈췄다
+- 스트림 파이프라인에서 에러가 발생하였으므로
+  - `스트림 파이프라인 작업`과 관련된 **전체 메서드 호출 리스트**가 출력
+- 메서드 호출 리스트에 `$`가 포함된 정보도 존재
+  - **람다 표현식** 내부에서 **에러**가 발생했음을 의미
+- 람다 표현식은 이름이 없으므로 **컴파일러**가 **람다**를 참조하는 이름을 만들어냄
+- `lmabda$main$0`은 다소 생소한 이름
+  - 클래스에 여러 **람다 표현식**이 있을 때는 꽤 골치 아픈 일이 벌어짐
+- **메서드 참조**를 사용해도 기존의 **람다 표현식**
+  - `p -> p.getX()`를 메서드 참조 `Point::getX`로 고쳐도 `stack trace`로는 이상한 정보 출력
+    ```java
+    points.stream().map(Point::getX).forEach(System.out::println);
+
+    Exception in thread "main" java.lang.NullPointerException
+      at Debugging$$Lambda$5/284720968.apply(Unknown Source) // 어떤 의미?
+    ```
+- 메서드 참조를 사용하는 **클래스**와 같은 곳은 선언되어 있는 메서드를 참조할 때는
+  - 메서드 참조 이름이 stack trace에 나타냄
+    ```java
+    public class Debugging{
+      public static void main(String[] args) {
+        List<Integer> numbers = Arrays.asList(1, 2, 3);
+        numbers.stream().map(Debugging::divideByZero).forEach(System.out::println);
+      }
+      public static int divideByZero(int n){
+        return n / 0;
+      }
+    }
+    ```
+- `divideByZero` 메서드는 `stackstrace`에 제대로 표시됨
+- 어쨌든 **람다 표현식**과 관련한 `stack trace`는 이해하기 어려울 수 있음
+
+### 9.4.2. 정보 로깅
+- 스트림 파이프라인의 연산을 **디버깅**한다면?
+- 다음처럼 `foreEach`로 **스트림 결과**를 출력하거나 로깅 가능
+  ```java
+  List<Integer> numbers = Arrays.asList(2, 3, 4, 5);
+
+  numbers.stream()
+          .map(x -> x + 17)
+          .filter(x -> x % 2 == 0)
+          .limit(3)
+          .forEach(System.out.println);
+  ```
+- `forEach`를 사용하는 순간, **전체 스트림이 소비**
+- 스트림 파이프라인에 적용된 각각의 연산(`map, filter, limit`)이 어떤 결과를 도출하는지 확인할 수 있다면 좋음
+- `peek` 스트림 연산 사용 가능
+- `peek`는 스트림의 각 요소를 소비한 것처럼 **동작 싫행**
+  - `forEach`처럼 스트림의 요소를 소비하지는 않음
+- `peek`는 자신이 확인한 요소를 파이프라인의 다음 연산으로 그대로 전달
+  - `peek`으로 스트림 파이프라인의 `각 동작 전후의 중간값을 출력`
+- 예시 코드
+  ```java
+  List<Integer> result =
+      numbers.stream()
+              .peek(x -> System.out.println("from stream: " + x)) // 소스에서 처음 소비한 요소를 출력
+              .map(x -> x + 17)
+              .peek(x -> System.out.println("after map: " + x)) // map 동작 실행 결과를 출력
+              .filter(x -> x % 2 == 0)
+              .peek(x -> System.out.println("after filter: " + x)) // filter 동작 후 선택된 숫자 출력
+              .limit(3)
+              .peek(x -> System.out.println("after limit: " + x)) // limit 동작 후 선택된 숫자를 출력
+              .collect(toList());
+  ```
+
+## 9.5. 마치며
+- **람다 표현식**으로 가독성이 좋고 더 유연한 코드를 만들 수 있음
+- `익명 클래스 -> 람다 표현식`으로 바꾸는 것이 좋음
+  - 이때 `this`, 변수 섀도 등 미묘하게 의미상 다른 내용 존재
+- **메서드 참조**로 람다 표현식보다 더 가독성이 좋은 코드를 구현할 수 있음
+- 반복적으로 **컬렉션** 처리하는 루틴은 **스트림 API**로 대체할 수 있을지 고려하는 것이 좋음
+- 람다 표현식으로 `전략, 템플릿 메서드, 옵저버, 의무 체인, 팩토리` 등의
+  - **객체지향 디자인 패턴**에서 발생하는 불필요한 코드를 제거할 수 있음
+- 람다 표현식도 **단위 테스트**를 수행할 수 있음
+  - 단, 람다 표현식 자체를 테스트하는 것 보다는
+  - 람다 표현식이 사용되는 **메서드의 동작**을 테스트하는 것이 바람직
+- 복잡한 람다 표현식은 **일반 메서드**로 **재구현** 가능
+- 람다 표현식을 사용하면 `stack trace`를 이해하기 어려워짐
+- 스트림 파이프라인에서 요소를 처리할 때 `peek 메서드`로 중간값을 확인할 수 있음
