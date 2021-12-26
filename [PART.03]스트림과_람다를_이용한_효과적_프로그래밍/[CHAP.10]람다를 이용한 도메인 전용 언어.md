@@ -269,3 +269,87 @@
   - 비즈니스 문제를 묘사하고 해결하는 제일 좋은 언어 생성 가능
 - 자바로 개발한 `인프라 구조의 코드`와 `비즈니스 코드`를 명확하게 분리할 수 있음
   - 하지만 이 분리로, `DSL`과 `호스트 언어`사이의 인공 계층이 생김
+
+## 10.2. 최신 자바 API의 작은 DSL
+- `Native Java API`
+  - `java 8` 이전의 `Native Java API`는 이미 한 개의 **추상 메서드**를 가진 **인터페이스**를 가지고 있었음
+  - `무명 내부 클래스`를 구현하려면, `불필요한 코드`가 추가되어야 함
+  - `lambda`와 **메서드 참조**가 등장하면서 게임의 규칙이 바뀌었음
+- `java 8`의 `Comparator interface`에 새로운 메서드가 추가됨
+- `Compator interface`를 통해 `lambda`가
+  - 어떻게 `Native Java API`의 **재사용성**과 **메서드 결합도**를 높였는지 확인
+- 예시: `Persons`을 가리키는 객체 목록을 가지고 있음
+  - 사람의 나이를 기준으로 **객체**를 정렬한다고 가정
+  - `lambda`가 없으면 **내부 클래스**로 `Comparator` 인터페이스를 구현해야 함
+  ```java
+  Collections.sort(person, new Comparator<Person>() {
+    public int compare(Person p1, Person p2) {
+      return p1.getAge() - p2.getAge();
+    }
+  });
+
+  // 내부 클래스를 람다 표현식으로 바꿀 수 있음
+  Collections.sort(people, (p1, p2) -> p1.getAge() - p2.getAge());
+
+  // Comparator.comparing method
+  Collections.sort(persons, comparing(p -> p.getAge()));
+
+  // lambda를 method 참조로 대신하여 코드 개선
+  Collections.sort(persons, comparing(Person::getAge));
+
+  // reverse
+  Collections.sort(persons, comparing(Person::getAge).reverse());
+
+  // 이름으로 비교를 수행하는 Comparator를 구현해 같은 나이의 사람들을 알파벳 순으로 정렬
+  Coolections.sort(persons, comparing(Person::getAge).thenComparing(Person::getName));
+
+  // List 인터페이스에 추가된 새 sort 메서드를 이용해 코드를 깔끔하게 정리할 수 있음
+  persons.sort(comparing(Person::getAge).thenComparing(Person::getName));
+  ```
+- 위 작은 API는 **컬렉션 정렬 도메인**의 **최소 DSL**
+  - **람다**와 **메서드 참조**를 이용한 `DSL`이 코드의 **가독성**, **재가용성**, **결합성**을 높일 수 있는지 보여줌
+
+### 10.2.1. 스트림 API는 컬렉션을 조작하는 DSL
+- `Stream` 인터페이스는 `Native Java API`에 작은 **내부 DSL**을 적용한 좋은 예시
+- `Stream`은 **컬렉션**의 항목을 `필터, 정렬, 변환, 그룹화, 조작`하는 작지만 강력한 DSL
+- 예시: `ERROR`라는 단어로 시작하는 파일의 **첫 40행**을 수집하는 작업을 수행한다고 가정
+
+#### CODE.10.1. 반복 형식으로 예제 로그 파일에서 에러 행을 읽는 코드
+```java
+List<String> errors = new ArrayList<>();
+int errorCount = 0;
+BufferedReader bufferedReader = new BufferedReader(new FileReader(fileName));
+String line = bufferedReader.readLine();
+while (errorCount < 40 && line != null) {
+  if (line.startsWith("ERROR")) {
+    errors.add(line);
+    errorCount++;
+  }
+  line = bufferedReader.readline();
+}
+```
+- 위 코드는 장황하여 의도를 한 눈에 파악하기 어려움
+- 같은 읨루를 지닌 코드가 여러 행에 분산되어 있음
+  - `FileReader`가 만들어짐
+  - 파일이 종료되었는지 확인하는 `while` 루프의 두 번째 조건
+  - 파일의 다음 행을 읽은 `while` 루프의 마지막 행
+- 첫 40행을 수집하는 코드도 세 부분
+  - `errorCount` 변수를 초기화하는 코드
+  - `while` 루프의 첫 번쨰 조건
+  - `Error`을 로그에서 발견하면 카운터를 증가시키는 행
+
+#### CODE.10.2. 함수형으로 로그 파일의 에러 행 읽음
+```java
+List<String> errors = Files.lines(Paths.get(fileName)) // 파일을 열어서 문자열 스트림의 만듦
+                           .filter(line -> line.startsWith("ERROR")) // ERROR로 시작하는 행을 필터링
+                           .limit(40) // 결과를 첫 40행으로 제한
+                           .collect(toList()); // 결과 문자열을 리스트로 수집
+```
+- `String`은 파일에서 파싱할 행을 의미하여
+  - `Files.lines`는 **정적 유틸리티 메서드**로 `Stream<String>`을 반환
+  - 파일을 한 행씩 읽은 부분의 코드는 이게 전부
+- 마찬가지로 `limit(40)`이라는 코드로 **에러 행**을 `첫 40개`만 수집
+- `Stream API`의 `fluent` 형식은 잘 설계된 `DSL`의 또 다른 특징
+- 모든 중간 연산은 게으르며,
+  - 다른 연산으로 파이프라인될 수 있는 스트림으로 반환
+- 최종 연산은 적극적이며 전체 파이프라인이 계산을 일으킴
