@@ -353,3 +353,68 @@ List<String> errors = Files.lines(Paths.get(fileName)) // 파일을 열어서 �
 - 모든 중간 연산은 게으르며,
   - 다른 연산으로 파이프라인될 수 있는 스트림으로 반환
 - 최종 연산은 적극적이며 전체 파이프라인이 계산을 일으킴
+
+### 10.2.2. 데이터를 수집하는 DSL인 Collectors
+- `Stream` 인터페이스를 데이터 리스트를 조작하는 `DSL`로 간주할 수 있었음
+- `Collector` 인터페이스는 **데이터 수집**을 수행하는 `DSL`로 간주할 수 있음
+- 특히 `Comparator` 인터페이스는
+  - **다중 필드 정렬**을 지원하도록 합쳐질 수 있으며
+- `Collectors`는 **다중 수준 그룹화**를 달성할 수 있도록 합쳐질 수 있음
+- 예제: 자동차를 브랜드별, 색상별로 그룹화
+  ```java
+  Map<String, Map<Color, List<Car>>> carsByBrandAndColor =
+        cars.stream().collect(groupingBy(Car::getBrand, groupingBy(Car::getColor)));
+  ```
+- `Comparators`를 연결하는 것과 비교할때의 차이점?
+  - 두 `Comparator`를 `fluent`방식으로 연결해서 다중 필드 `Comparator`를 정의
+    ```java
+    Comparator<Person> comparator =
+        comparing(Person::getAge).thenComparing(Person::getName);
+    ```
+- `Collectors API`를 활용해 `Collectors`를 중첩, 다중 수준 `Collector`를 만들 수 있음
+  ```java
+  Collector<? super Car, ? Map<Brand, Map<Color, List<Car>>>> carGroupingCollector =
+      groupingBy(Car::getBrand, groupingBy(Car::getColor));
+  ```
+- 셋 이상의 컴폰넌트를 조합할 때는, 보통 `fluent` 형식이 **중첩 형식**에 비해 가독성이 좋음
+- 형식이 중요할까?
+  - 가장 안쪽의 `Collector`가 첫 번째로 평가되어야 하지만,
+  - 논리적으로는 **최종 그룹화**에 해당하므로,
+    - 서로 다른 형식은 이를 어떻게 처리하는지를 **쌍반적으로** 보여줌
+- 위 예제에서 `fluent` 형식으로 `Collector`를 연결하지 않고,
+  - `Collector`생성을 여러 **정적 메서드**로 중첩함으로써
+  - 안쪽 그룹화가 처음 평가되고, 코드에서는 반대로 나중에 등장
+- `groupingBy` 팩터리 메서드에 작업을 위임하는 `GroupingBuilder`를 만들면, 문제를 쉽게 해결할 수 있음
+  - `GroupingBuilder`는 유연한 방식으로 여러 **그룹화 작업**을 만듦
+
+#### CODE.10.3. 유연한 그룹화 컬렉터 빌더
+```java
+public class GroupingBuilder<T, D, K> {
+  private final Collector<? super T, ?, Map<K, D>> collector;
+
+  private GroupingBuilder(Collector<? super T, ?, Map<K, D>> collector) {
+    this.collector = collector;
+  }
+
+  public Collector<? super T, ?, Map<K, D>> get() {
+    return collector;
+  }
+
+  public <J> GroupingBuilder<T, Map<K, D>, J> after(Function<? super T, ? extends J> classifier) {
+    return new GroupingBuilder<>(groupingBy(classifier, collector));
+  }
+
+  public static <T, D, K> GroupingBuilder<T, List<T>, K> groupOn(Function<? super T, ? extends K> classifier) {
+    return new GroupingBuilder<>(groupingBy(classifier));
+  }
+}
+```
+- `fluent` 형식 빌더의 문제?
+  ```java
+  Collector<? super Car, ?, Map<Brand, Map<Color, List<Car>>>>
+    carGroupingCollector =
+      groupOn(Car::getColor).after(Car::getBrand).get()
+  ```
+  - 중첩화 그룹화 수준에 **반대로 그룹화 함수 구현**해야 하므로
+    - 유틸리티 사용코드가 직관적이지 않음
+  - 자바 형식 시스템으로는 이런 순서 문제를 해결할 수 없음
