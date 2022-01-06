@@ -418,3 +418,251 @@ public class GroupingBuilder<T, D, K> {
   - 중첩화 그룹화 수준에 **반대로 그룹화 함수 구현**해야 하므로
     - 유틸리티 사용코드가 직관적이지 않음
   - 자바 형식 시스템으로는 이런 순서 문제를 해결할 수 없음
+
+## 10.3. Java로 DSL을 만드는 패턴과 기법
+- `DSL`은 특정 **도메인 모델**에 적용할 가독성 높은 API를 제공
+- 따라서 가장 간단한 도메인 모델을 정의하면서 시작
+- 예시: 주어진 시장에 주식 가격을 모델링 하는 순수 Java beans
+```java
+// 주식 가격
+@Getter
+@Setter
+public class Stock {
+  private String symbol;
+  private String market;
+}
+
+// 거래
+@Getter
+@Setter
+public class Trade {
+  public enum Type { BUY, SELL }
+  private Type type;
+
+  private Stock stock;
+  private int quantity;
+  private double price;
+}
+
+// 주문
+@Getter
+@Setter
+public class Order {
+  private String customer;
+  private List<Trade> trades = new ArrayList<>();
+}
+```
+- 도메인 모델은 직관적
+- `주문을 의미하는 객체`를 만드는 것은 조금 번거로움
+- `BigBank`라는 고객이 요청한 두 거래를 포함하는 주문 만들기
+
+#### CODE.10.4. 도메인 객체의 API를 직접 이용해 주식 거래 주문 생성
+```java
+Order order = new Order();
+order.setCustomer("BigBank");
+
+Trade trade1 = new Trade();
+trade1.setType(Trade.Type.BUY);
+
+Stock stock1 = new Stock();
+stock.setSymbol("IBM");
+stock.setMarket("NYUSE");
+
+trade1.setStock(stock1);
+trade1.setPrice(125.00);
+trade1.setQuantity(80);
+order.addTrade(trade1);
+```
+- 코드가 상당히 장황한 편
+- 비개발자인 **도메인 전문가**가 위 코드를 이해하고 검증하기를 기대할 수 없기 때문
+- 조금 더 직접적이고, 직관적으로 도메인 모델을 반영할 수 있는 `DSL`이 필요
+
+### 10.3.1. 메서드 체인
+- `DSL`의 가장 흔한 방식중 하나
+- 이 방법을 이용하면, 한 개의 메서드 호출 체인으로 거래 주문 정의 가능
+
+#### CODE.10.5. 메서드 체인으로 주식 거래 주문 만들기
+```java
+Order order = forCustomer("BigBank")
+      .buy(80)
+      .stock("IBM")
+      .on("NYSC")
+      .at(125.00)
+      .sell(50)
+      .stock("GOOGLE")
+      .on("NASDAQ")
+      .at(375.00)
+      .end();
+```
+- 위 결과를 달성하려면
+  - `fluent api`로 **도메인 객체를 만드는 몇개의 빌더 구현**이 필요
+- 다음처럼 **최상위 수준 빌더**를 만들고, 주문을 감싼 다음
+  - 한 개 이상의 거래를 주문에 추가할 수 있어야 함
+
+#### CODE.10.6. 메서드 체인 DSL을 제공하는 주문 빌더
+```java
+public class MethodChainingOrderBuilder {
+  public final Order order = new Order(); // 빌더로 감싼 주문
+
+  private MethodChainingOrderBuilder(String customer) {
+    order.setCustomer(customer);
+  }
+
+  public static MethodChainingOrderBuilder forCustomer(String customer) {
+    return new MethodChainingOrderBuilder(customer); // 고객의 주문을 만드는 정적 팩터리 메서드
+  }
+
+  public TradeBuilder buy(int quantity) {
+    return new TradeBuilder(this, Trade.Type.BUY, quantity); // 주식을 사는 TradeBuilder 만들기
+  }
+
+  public TradeBuilder sell(int quantity) {
+    return new TradeBuilder(this, Trade.Type.SELL, quantity); // 주식을 파는 TradeBuilder 만들기
+  }
+
+  public MethodChainingOrderBuilder addTrade(Trade trade) {
+    order.addTrade(trade); // 주식에 주문 추가
+    return this; // 유연하게 추가 주문을 만들어 추가할 수 있도록 주문 빌더 자체 반환
+  }
+
+  public Order end() {
+    return order; // 주문 만들기를 종료하고 반환
+  }
+}
+
+public class TradeBuilder {
+  private final MethodChainingOrderBuilder builder;
+  public final Trade trade = new Trade();
+
+  private TradeBuilder(MethodChainingOrderBuilder builder, Trade.Type type, int quantity) {
+    this.builder = builder;
+    trade.setType(type);
+    trade.setQuantity(quantity);
+  }
+
+  public StockBuilder stock(String symbol) {
+    return new StockBuilder(builder, trade, symbol);
+  }
+}
+```
+- 주문 빌더의 `buy()`, `sell()`메서드는
+  - 다른 주문을 만들어 추가할 수 있도록 자신을 만들어 반환
+- 빌더를 계속 이어나가려면, `Stock` 클래스의 인스턴스를 만드는
+  - `TradeBuilder`의 공개 메서드를 이용해야함
+  ```java
+  public class StockBuilder {
+    private final MethodChainingOrderBuilder builder;
+    private final Trade trade;
+    private final Stock stock = new Stock();
+
+    private StockBuilder(MethodChainingOrderBuilder builder, Trade trade, String symbol) {
+      this.builder = builder;
+      this.trade = trade;
+      stock.setsymbol(symbol);
+    }
+
+    public TradeBuilderWithStock on(String market) {
+      stock.setMarket(market);
+      trade.setStock(stock);
+      return new TradeBuilderWithStock(builder, trade);
+    }
+  }
+
+  public TradeBuilderWithStock {
+    private final MethodChainingOrderbuilder builder;
+    private final Trade trade;
+
+    public TraddeBuilderWithStock(MethodChainingOrderBuilder builder, Trade trade) {
+      this.builder = builder;
+      this.trade = trade;
+    }
+
+    public MethodChainingOrderBuilder at(double price) {
+      trade.setPrice(price);
+      return builder.addTrade(trade);
+    }
+  }
+  ```
+- `StockBuilder`는 주식의 시장을 지정하고, 거래에 주식을 추가하고, 최종 빌더를 반환하는 `on()`메서드 한개를 지정
+- 한 개의 공개 메서드 `TradeBuilderWithStock`은
+  - 주식의 단위 가격을 설정한 다면, 원래 주문 빌더를 반환
+- `MethodChainingOrderBuilder`가 끝날 때까지
+  - 다른 거래를 `fluent`방식으로 추가 가능
+- 여러 **빌드 클래스**
+  - 특히 두 개의 거래 빌더를 따로 만듦으로써
+  - 사용자가 미리 지정된 절차에 따라 `fluent api`의 메서드를 호출하도록 강제
+- 덕분에 사용자가 다음 거래를 설정하기 전에, 기존 거래를 올바르게 설정하게 됨
+- 이 접근 방법은
+  - 주문에 사용한 **파라미터**가 **빌더 내부로 국한**된다는 이점 제공
+  - **정적 메서드 사용**을 최소화 하고, 메서드 이름이 인수의 이름을 대신하도록 만듦으로써
+    - 이런 형식의 `DSL`의 가독성을 개선하는 효과를 더함
+  - `fluent DSL`에는 문법적 잡음이 최소화
+- 단, **빌더 구현**이 **메서드 체인**의 단점
+- `상위 수준의 빌더`를 `하위 수준의 빌더`와 연결할 **접착 코드**가 필요
+  - 도메인의 객체의 중첩 구조와 일치하게 **들여쓰기 방법을 강제할 방법이 없음**
+
+### 10.3.2. 중첩된 함수 이용
+- 다른 함수안에 함수를 이용해 도메인 모델 생성
+
+#### CODE.10.7. 중첩된 함수로 주식 거래 만들기
+```java
+Order order = order("BigBank",
+                      buy(80,
+                          stock("IBM", on("NYSE")), at(125.00)),
+                      sell(50,
+                          stock("GOOGLE", on("NASDAQ")), at(375.00))
+);
+```
+
+#### CODE 10.8. 중첩된 함수 DSL을 제공하는 주문 빌더
+```java
+public class NestedFunctionOrderBuilder {
+  public static Order order(String customer, Trade... trades) {
+    Order order = new Order(); // 해당 고객의 주문 생성
+    order.setCustomer(customer);
+    Stream.of(trades).forEach(order::addTrade); // 주문에 모든 거래 추가
+    return order;
+  }
+
+  public static Trade buy(int quantity, Stock stock, double price) {
+    return buildTrade(quantity, stock, price, Trade.Type.BUY); // 주식 매수 거래 생성
+  }
+
+  public static Trade sell(int quantity, Stock stock, double price) {
+    return buildTrade(quantity, stock, price, Trade.Type.SELL); // 주식 매도 거래 생성
+  }
+
+  private static Trade buildTrade(int quantity, Stock stock, double price, Trade.Type buy) {
+    Trade trade = new Trade();
+    trade.setQuantity(quantity);
+    trade.SetType(buy);
+    trade.setStock(stock);
+    trade.setPrice(price);
+    return trade;
+  }
+
+  public static double at(double price) { // 거래된 주식의 단가를 정의하는 더미 메서드
+    return price;
+  }
+
+  public static Stock stock(String symbol, String market) {
+    Stock stock = new Stock(); // 거래된 주식 만들기
+    stock.setSymbol(symbol);
+    stock.setMarket(market);
+    return stock;
+  }
+
+  public static String on(String market) { // 주식이 거래된 시장을 정의하는 더미 메서드 정의
+    return market;
+  }
+}
+```
+- 메서드 체인 방식에 비해 **함수 중첩 방식**이
+  - **도메인 객체 계층 구조**에 그대로 반영된다는 것이 장점
+- 단, `DSL`에 **많은 괄호**를 사용해야하는 것이 단점
+- 또한 인수 목록을 **정적 메서드**에 넘겨주어야 함
+- 도메인 객체에 **선택 사항 필드**가 있다면 **인수 생략**이 가능하므로
+  - 여러 메서드를 `override`하여 구현해야 함
+- 인수의 의미가 **이름**이 아닌 **위치**에 의해 정의
+- `NestedFunctionOrderBuilder`의 `at()`, `on()` 메서드에서 했던 것처럼
+  - 인수의 역할을 확실하게 만드는 여러 더미 메서드를 이용하여, 문제 완화가 가능
