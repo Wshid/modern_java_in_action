@@ -666,3 +666,122 @@ public class NestedFunctionOrderBuilder {
 - 인수의 의미가 **이름**이 아닌 **위치**에 의해 정의
 - `NestedFunctionOrderBuilder`의 `at()`, `on()` 메서드에서 했던 것처럼
   - 인수의 역할을 확실하게 만드는 여러 더미 메서드를 이용하여, 문제 완화가 가능
+
+### 10.3. 람다 표현식을 이용한 함수 시퀀싱
+- 람다 표현식으로 정의한 함수 시퀀스를 사용하기
+
+#### CODE.10.9. 함수 시퀀싱으로 주식 거래 주문 만들기
+```java
+Order order = order { o -> {
+  o.forCustomer("BigBank");
+  o.buy(t -> {
+    t.quantity(80);
+    t.price(125.00);
+    t.stock(s -> {
+      s.symbol("IBM");
+      s.market("NYSE");
+    });
+  });
+  o.sell(t -> {
+    t.quantity(50);
+    t.price(375.00);
+    t.stock(s -> {
+      s.symbol("GOOGLE");
+      s.market("NASDAQ");
+    });
+  });
+}};
+```
+- 위와 같은 DSL을 만들려면
+  - 람다 표현식을 받아 실행해
+  - **도메인 모델**을 만들어 내는 여러 **빌더**를 구현해야 함
+- 이 빌더는 **메서드 체인 패턴**을 이용해 만들려는 **객체의 중간 상태**를 유지
+- **메서드 체인 패턴**에는 주문을 만드는 **최상위 빌더**를 가졌지만,
+  - 이번에는 `Customer`객체를 빌더가 인수로 받음으로서
+  - DSL 사용자가 **람다 표현식**으로 인수를 구현할 수 있게 함
+
+#### CODE.10.10. 함수 시퀀싱 DSL을 제공하는 주문 빌더
+```java
+public class LambdaOrderBuilder {
+
+  private Order order = new Order(); // 빌더로 주문을 감쌈
+
+  public static Order order(Customer<LambdaOrderBuilder> consumer) {
+    LambdaOrderBuilder builder = new LambdaOrderBuilder();
+    // 주문 빌더로 전달된 람다 표현식 실행
+    consumer.accept(builder);
+    // OrderBuilder의 Customer를 실행해 만들어진 주문 반환
+    return builder.order;
+  }
+
+  public void forCustomer(String customer) {
+    order.setCustomer(customer); // 주문을 요청한 고객 설정
+  }
+
+  public void buy(consumer<TradeBuilder> consumer) {
+    // 주식 매수 주문을 만들도록 TradeBuilder 소비
+    trade(consumer, Trade.Type.BUY);
+  }
+
+  public void sell(Consumer<TradeBuilder> consumer) {
+    // 주식 매도 주문을 만들도록 TradeBuilder 소비
+    trade(consumer, Trade.Type.SELL);
+  }
+
+  private void trade(Consumer<TradeBuilder> consumer, Trade.Type.type) {
+    TradeBuilder builder = new TradeBuilder();
+    builder.trade.setType(type);
+    // TradeBuilder로 전달할 람다 표현식 실행
+    consumer.accept(builder);
+    // TradeBuilder의 Consumer를 실행해 만든 거래를 주문에 추가
+    order.addTrade(builder.trade);
+  }
+}
+```
+- `buy(), sell` 메서드는 두 개의 `Consumer<TradeBuilder>` 람다 표현식을 받음
+  - 이 람다 표현식을 실행하면, 다음처럼 거래가 만들어짐
+  ```java
+  public class TradeBuilder {
+    private Trade trade = new Trade();
+
+    public void quantity(int quantity) {
+      trade.setQuantity(quantity);
+    }
+
+    public void price(double price) {
+      trade.setPrice(price);
+    }
+
+    public void stock(Consumer<StockBuilder> consumer) {
+      StockBuilder builder = new StockBuilder();
+      consumer.accept(builder);
+      trade.setStock(builder.stock);
+    }
+  }
+
+  public class SockBuilder {
+    private Stock stock = new Stock();
+
+    public void symbol(String symbol) {
+      stock.setSymbol(symbol);
+    }
+
+    public void market(String market) {
+      stock.setMarket(market);
+    }
+  }
+  ```
+
+#### 해당 패턴의 장/단점
+- 장점
+  - **메서드 체인 패턴**처럼 **플루언트 방식**으로 거래 주문 정의 가능
+  - **중첩 함수 형식**처럼 **람다 표현식**의 중첩 수준과 비슷하게
+    - 도메인 객체의 계층 구조 유지
+- 단점
+  - 많은 설정 코드가 필요함
+  - DSL 자체가 `java 8` lambda expression 문벙에 의한 잡음에 영향을 받음
+
+#### DSL 사용 결정하기
+- 자신의 기호에 따라 다름
+- 자신이 만들려는 **도메인 언어**에 어떤 도메인 모델이 맞는지 찾으려면
+  - 실험을 해야함
