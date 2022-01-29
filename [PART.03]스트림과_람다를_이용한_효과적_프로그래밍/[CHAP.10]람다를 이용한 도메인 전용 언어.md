@@ -667,7 +667,7 @@ public class NestedFunctionOrderBuilder {
 - `NestedFunctionOrderBuilder`의 `at()`, `on()` 메서드에서 했던 것처럼
   - 인수의 역할을 확실하게 만드는 여러 더미 메서드를 이용하여, 문제 완화가 가능
 
-### 10.3. 람다 표현식을 이용한 함수 시퀀싱
+### 10.3.3. 람다 표현식을 이용한 함수 시퀀싱
 - 람다 표현식으로 정의한 함수 시퀀스를 사용하기
 
 #### CODE.10.9. 함수 시퀀싱으로 주식 거래 주문 만들기
@@ -785,3 +785,96 @@ public class LambdaOrderBuilder {
 - 자신의 기호에 따라 다름
 - 자신이 만들려는 **도메인 언어**에 어떤 도메인 모델이 맞는지 찾으려면
   - 실험을 해야함
+
+### 10.3.4. 조합하기
+- 세가지 `DSL` 패턴 각자가 **장단점**을 가지고 있음
+- 하나의 `DSL` 패턴만 사용하라는 법은 없음
+
+#### CODE.10.11. 여러 DSL 패턴을 이용해 주식 거래 주문 만들기
+```java
+Order order =
+  forCustomer("BigBank", // 최상위 수준 주문 속성 지정하는 중첩 함수
+    buy(t -> t.quantity(80) // 한개의 주문을 만드는 람다 표현식
+              .stock("IBM") // 거래 객체를 만드는 람다 표현식 바디의 메서드 체인
+              .on("NYSE")
+              .at(125.00)),
+    sell(t -> t.quantity(50)
+               .stock("GOOGLE")
+               .on("NASDAQ")
+               .at(125.00))
+  );  
+```
+- **중첩된 함수 패턴**과 **람다** 기법 혼용
+
+#### CODE.10.12. 여러 형식을 혼합한 DSL을 제공하는 주문 빌더
+- `TradeBuilder`의 `Consumer`가 만든 각 거래는
+  - 다음 코드처럼 **람다 표현식**으로 구현
+```java
+public class MixedBuilder {
+  public static Order forCustomer(String customer, TradeBuilder... builders) {
+    Order order = new Order();
+    order.setCustomer(customer);
+    Stream.of(builders).forEach(b -> order.addTrade(b.trade));
+    return order;
+  }
+
+  public static TradeBuilder buy(Customer<TradeBuilder> customer) {
+    return buildTrade(customer, Trade.Type.BUY);
+  }
+
+  public static TradeBuilder sell(Customer<TradeBuilder> customer) {
+    return buildTrade(customer, Trade.Type.SELL);
+  }
+
+  private static TradeBuilder buildTrade(Consumer<TradeBuilder> consumer, Trade.Trade buy) {
+    TradeBuilder builder = new TradeBuilder();
+    builder.trade.setType(buy);
+    consumer.accept(builder);
+    return builder;
+  }
+}
+```
+- 헬퍼 클래스 `TradeBuilder`와 `StockBuilder`는 내부적으로 **메서드 체인 패턴**을 구현해 `Fluent API`를 제공
+  - 람다 표현식 바디를 구현해 가장 간단하게 거래 구현 가능
+  - 코드
+    ```java
+    public class TradeBuilder {
+      private Trade trade = new Trade();
+
+      public TradeBuilder quantity(int quantity) {
+        trade.setQuantity(quantity);
+        return this;
+      }
+
+      public TradeBuilder at(double price) {
+        trade.setPrice(price);
+        return this;
+      }
+
+      public StockBuilder stock(String symbol) {
+        return new StockBuilder(this, trade, symbol);
+      }
+    }
+
+    public class StockBuilder {
+      private final TradeBuilder builder;
+      private final Trade trade;
+      private final Stock stock = new Stock();
+
+      private StockBuilder(TradeBuilder builder, Trade trade, String symbol) {
+        this.builder = builder;
+        this.trade = trade;
+        stock.setSymbol(symbol);
+      }
+
+      public TradeBuilder on(String market) {
+        stock.setMarket(market);
+        trade setStock(stock);
+        return builder;
+      }
+    }
+    ```
+
+#### 혼합한 DSL 패턴의 특징
+- 여러 패턴의 장점을 이용할 수 있으나,
+  - 여러 DSL이 섞여있어, 상대적으로 DSL을 배우는데 오랜 시간이 걸릴 수 있음
