@@ -878,3 +878,112 @@ public class MixedBuilder {
 #### 혼합한 DSL 패턴의 특징
 - 여러 패턴의 장점을 이용할 수 있으나,
   - 여러 DSL이 섞여있어, 상대적으로 DSL을 배우는데 오랜 시간이 걸릴 수 있음
+
+### 10.3.5. DSL에 메서드 참조 사용하기
+- 기존 예시에
+  - 주문의 총 합에 0개 이상의 세금을 추가해 최종값을 계산하는 기능 추가
+
+#### CODE.10.13. 주문의 총 합에 적용할 세금
+```java
+public class Tax {
+  public static double regional(double value) {
+    return value * 1.1;
+  }
+
+  public static double general(double value) {
+    return value * 1.3;
+  }
+
+  public static double surcharge(double value) {
+    return value * 1.05;
+  }
+}
+```
+- 세금을 적용할 것인지 결정하는
+  - **불리언 플래그**를 인수로 받는 정적 메서드를 이용해 간단하게 해결할 수 있음
+
+#### CODE.10.14. 불리언 플래그 집합을 이용해 주문에 세금 적용
+```java
+public static double calculate(Order order, boolean useReional, boolean useGeneral, boolean useSurcharge) {
+  double value = order.getValue();
+  if (useRegional) value = Tax.regional(value);
+  if (useGeneral) value = Tax.general(value);
+  if (useSurcharge) value = Tax.surcharge(value);
+  return value;
+}
+
+// 지역 세금고 추가 요금 적용, 일반 세금은 뺀 주문의 최종값을 계산할 수 있음
+double value = calculate(order, true, false, true);
+```
+- 단 위 구현에는 **가독성 문제** 존재
+  - 불리언 변수의 순서 기억 어려움
+  - 어떤 세금이 적용되었는지 어려움
+- 오히려 아래의 유창하게 불리언 플래그를 설정하는 **최소 DSL 제공**, `TaxCalculator`를 이용하는게 더 좋음
+
+#### CODE.10.15. 적용할 세금을 유창하게 정의하는 세금 계산기
+```java
+public class TaxCalculator {
+  private boolean useRegional;
+  private boolean useGeneral;
+  private boolean useSurcharge;
+
+  public TaxCalculator withTaxRegional() {
+    useRegional = true;
+    return this;
+  }
+
+  public TaxCalculator withTaxGeneral() {
+    useGeneral = true;
+    return this;
+  }
+
+  public TaxCalculator withTaxSurcharge() {
+    useSurcharge = true;
+    return this;
+  }
+
+  public double calculate(Order order) {
+    return calculate(order, useRegional, useGeneral, useSurcharge);
+  }
+}
+
+// TaxCalculator는 지역 세금과 추가 요금은 주문에 추가하고 싶다는 점은 명확하게 보여줌
+double value = new TaxCalculator().withTaxRegional()
+                                  .withTaxSurcharge()
+                                  .calculate(order);
+```
+- 이 방법은 **코드가 장황하다는게 문제**
+- 도메인의 각 세금에 해당하는 **불리언 필드**가 필요하므로 **확작성**도 제한적
+- 자바의 **함수형 기능**을 이용하면 더 간결하고 유연한 방식으로 같은 **가독성**을 달성할 수 있음
+
+#### CODE.10.16. 유창하게 세금 함수를 적용하는 세금 계산기
+```java
+public class TaxCalculator {
+  public DobubleUnaryOperator taxFunction = d -> d; // 주문값에 적용된 모든 세금을 계산하는 함수
+
+  public TaxCaculator with(DoubleUnaryOperator f) {
+    taxFunction = taxFunction.addThen(f); // 새로운 세금 계산 함수를 얻어서 인수로 전달된 함수와 현재 함수를 합침
+    return this; // 유창하게 세금 함수가 연결될 수 있도록 결과를 반환
+  }
+
+  public double caculate(Order order) {
+    return taxFunction.applyAsDouble(order.getValue()); // 주문의 총 합에 세금 계산 함수를 적용해 최종 주문값을 계산
+  }
+}
+```
+- 이 기법은 주문의 총 합에 적용할 함수 **한 개의 필드**만 필요로하며
+  - `TaxCalculator` 클래스를 통해 모든 세금 설정 적용
+- 이 함수의 시작값은 확인 함수
+- 처음 시점에는 세금이 적용되지 않았으므로
+  - 최종값은 총합과 같음
+- `with()`메서드로 새 세금이 추가되면
+  - 현재 세금 계산 함수에 이 세금이 조합되는 방식으로 한 함수에 모든 추가된 세금이 적용
+- `calculate()`메서드에 전달하면 다양한 세금 설정의 결과로 만들어진 **세금 계산 함수**가 주문의 합계에 적용
+  ```java
+  double value = new TaxCalculator().with(Tax::regional)
+                                    .with(Tax::surcharge)
+                                    .calculate(order);
+  ```
+- 메서드 참조는 읽기 쉽고 코드를 간결하게 만듦
+- 새로운 세금 함수를 `Tax` 클래스에 추가해도
+  - **함수형** `TaxCalculator`로 바꾸지 않고 바로 사용할 수 있는 유연성
