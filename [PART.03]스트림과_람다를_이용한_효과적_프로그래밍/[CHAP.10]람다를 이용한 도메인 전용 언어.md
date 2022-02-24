@@ -987,3 +987,84 @@ public class TaxCalculator {
 - 메서드 참조는 읽기 쉽고 코드를 간결하게 만듦
 - 새로운 세금 함수를 `Tax` 클래스에 추가해도
   - **함수형** `TaxCalculator`로 바꾸지 않고 바로 사용할 수 있는 유연성
+
+## 10.4. 실생활의 자바 8 DSL
+
+#### 메서드 체인
+- 장점
+  - **메서드명**이 **키워드 인수 역할**
+  - **선택형 파라미터**와 잘 동작
+  - `DSL 사용자`가 정해진 순서대로 메서드 호출 가능
+  - 정적 메서드를 최소화 하거나 X
+  - 문법적 잡음 최소화
+- 단점
+  - 구현 장황
+  - 빌드를 연결하는 **접착 코드**가 필요
+  - **들여쓰기 규칙**으로만 **도메인 객체 계층** 정의
+
+#### 중첩 함수
+- 장점
+  - 구현의 장황함을 줄일 수 있음
+  - 함수 중첩으로 **도메인 객체 계층**을 반영
+- 단점
+  - **정적 메서드** 사용이 빈번
+  - 이름이 아닌 **위치**로 인수 정의
+  - **선택형 파라미터**를 처리할 **메서드 오버로딩**이 필요
+
+#### 람다를 이용한 함수 시퀀싱
+- 장점
+  - **선택형 파라미터**와 잘 동작
+  - **정적 메서드**를 최소화 하거나 X
+  - **람다 중첩**으로 **도메인 객체 계층** 반영
+  - **빌더**의 접착 코드가 X
+- 단점
+  - 구현이 **장황**
+  - 람다 표현식으로 인한 **문법적 잡음**이 DSL에 존재
+
+### 10.4.1. JOOQ
+- `SQL`이라는 `DSL`은, 가장 광범위하게 사용하는 분야
+- `JOOQ`는 `SQL`을 구현하는 **내부적 DSL**
+  - 자바에 직접 내장된 **형식 안전 언어**
+- 데이터베이스 스키마를 **역공학**하는 **소스코드 생성기** 덕분에
+  - 자바 컴파일러가 **복잡한 SQL**의 형식 확인 가능
+- **역공학 프로세스**제품이 생성한 정보를 기반으로
+  - 데이터베이스 스키마를 탐색할 수 있음
+- 예시
+  ```sql
+  SELECT * FROM BOOK
+  WHERE BOOK.PUBLISHED_IN = 2016
+  ORDER BY BOOK.TITLE
+  ```
+  ```java
+  // JOOQ DSL
+  create.selectForm(BOOK)
+        .where(BOOK.PUBLISHED_IN.eq(2016))
+        .orderBy(BOOK.TITLE)
+  ```
+- **스트림 API**와 조합하여 사용할 수 있는것이, `JOOQ DSL`의 또다른 당점
+- 이 기능 덕분에 `SQL` 질의 실행으로 나온 결과를
+  - 한 개의 **fluent**구문으로
+  - 데이터를 **메모리**에서 조작할 수 있음
+
+#### CODE.10.17. JOOQ DSL을 이용해 데이터베이스에서 책 선택
+```java
+Class.forName("org.h2.Driver");
+try (Connection c = getConnection("jdbc:h2:~/sql-goodies-with-mapping", "sa", "")) { // SQL DB 연결 만들기
+  DSL.using(c)
+     .select(BOOK.AUTHOR, BOOK.TITLE) // 만들어진 db connection을 이용해 JOOQ SQL문 시작
+     .where(BOOK.PUBLISHED_IN.eq(2016))
+     .orderBy(BOOK.TITLE)
+  .fetch() //JOOQ DSL로 SQL 정의
+  .stream() // DB에서 데이터 가져오기, JOOQ문은 여기서 종료
+  .collect(groupingBy( // stream API로 DB에서 가져온 데이터 처리 시작
+    r -> r.getValue(BOOK.AUTHOR),
+    LinkedHashMap::new,
+    mapping(r -> r.getValue(BOOK.TITLE), toList())))
+  .forEach((author, titles)  // 저자의 이름, 집필 책들 출력
+      -> System.out.println(author + " is author of " + titles));
+}
+```
+- `JOOQ DSL`을 구현하는데 **메서드 체인 패턴**을 사용함
+- 잘 만들어진 `SQL 질의 문법`을 흉내내려면,
+  - 메서드 체인 패턴의 **여러 특성**이 반드시 필요
+    - `선택적 파라미터`를 허용하고 미리 정해진 순서로 **특정 메서드**를 호출하도록 강제
