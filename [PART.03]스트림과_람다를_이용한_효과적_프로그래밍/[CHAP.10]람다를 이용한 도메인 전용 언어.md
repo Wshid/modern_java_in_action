@@ -1068,3 +1068,177 @@ try (Connection c = getConnection("jdbc:h2:~/sql-goodies-with-mapping", "sa", ""
 - 잘 만들어진 `SQL 질의 문법`을 흉내내려면,
   - 메서드 체인 패턴의 **여러 특성**이 반드시 필요
     - `선택적 파라미터`를 허용하고 미리 정해진 순서로 **특정 메서드**를 호출하도록 강제
+
+### 10.4.2. 큐컴버
+- **동작 주도 개발**(Behavior-driven development)
+  - **테스트 주도 개발**의 확장
+  - 다양한 비즈니스 시나리오를 **구조적**으로 서술하는
+  - 간단한 **도메인 스크립팅 언어**를 활용
+- **큐컴버**(Cucumber)는 다른 `BDD Framework`와 마찬가지로
+  - 이들 명령문을 실행할 수 있는 **테스트**임과 동시에
+  - **비즈니스 기능**의 수용 기준이 됨
+- BDD는 **우선 순위**에 따른, 확인할 수 있는
+  - **비즈니스 가치**를 전달하는 개발 노력에 집중하며
+  - **비즈니스 어휘**를 공유함으로서
+    - **도메인 전문가**와 **프로그래머** 사이의 간격을 줄임
+- 세 가지로 구분되는 **개념**
+  - `Given`: 전체 조건 정의
+  - `When`: 시험하려는 **도메인**객체의 실질 호출
+  - `Then`: 테스트 결과를 확인하는 Assertion
+- 테스트 시나리오를 정의하는 **스크립트**는
+  - `제한된 수`와 `키워드`를 제공하며
+  - **자유로운 형식**으로 **문장**을 구현할 수 있는 **외부 DSL**을 활용
+- 이들 문장은 **테스트 케이스**의 변수를 **캡쳐**하는 **정규표현식**으로 매칭되며
+  - 테스트 자체를 구현하는 **메서드**로 이를 전달
+- 예시: 주식 거래 주문의 값이 제대로 계산되었는지 확인하기
+
+#### CODE.10.18. 큐컴버 어노테이션을 이용해 테스트 시나리오 구현
+```java
+public class BuyStocksSteps {
+  private Map<String, Integer> stockUnitPrices = new HashMap<>();
+  private Order order = new Order();
+
+  @Given("^the price of \"(.*?)\"...") // 시나리오의 전체 조건인 주식 단가 정의 구문
+  public void setUnitPrice(String stockName, int unitPrice) {
+    stockUnitValues.put(stockName, unitPrice); // 주식 단가 저장
+  }
+
+  @When("^I buy (\\d+)") // 테스트 대상인 도메인 모델에 행할 액션 정의
+  public void buyStocks(int quantity, String stockName) {
+    Trade trade = new Trade(); // 적절하게 도메인 모델 도출
+    trade.setType(Trade.Type.BUY);
+
+    Stock stock = new Stock();
+    stock.setStymbol(stockName);
+
+    trade.setStock(stock);
+    trade.setPrice(stockUnitPrices.get(stockName));
+    trade.setQuantity(quantity);
+    order.addTrade(trade);
+  }
+
+  @Then("^the order value should be (\\d+)\\$$")
+  public void checkOrderValue(int expectedValue) { // 예상되는 시나리오 결과 정의
+    assertEquals(expectedValue, order.getValue()); // Test Assertion 확인
+  }
+}
+```
+- java 8의 **람다 표현식** 지원으로
+  - 두개의 인수메서드(기존에 어노테이션 값을 포함한 **정규표현식**과 **테스트 메서드**를 구현하는 람다)
+  - 이를 이용해 **어노테이션**을 제거하는 문법을 **큐컴버**로 개발 가능
+- 다음과 같이 구현 가능
+  ```java
+  public class BuyStockSteps implements cucumber.api.java8.En {
+    private Map<String, Integer> stockUnitPrices = new HashMap<>();
+    private Order order = new Order();
+    public BuyStockSteps() {
+      Given("^the price ...",
+        (String stockName, int unitPrice) -> {
+          stockUnitValues.put(stockName, unitPrice);
+        }
+      );
+      // When과 Then은 생략 ...
+    }
+  }
+  ```
+  - 코드가 더 단순해지는 장점
+  - 테스트 메서드가 **무명 람다 메서드**로 변경되면서
+    - 의미를 가진 메서드 이름을 찾는 부담이 적어짐
+- 큐컴버의 DSL은 아주 간단하지만
+  - **외부적 DSL**과 **내부적 DSL**을 어떻게 효과적으로 합쳐질 수 있으며
+  - 람다와 함께 가독성 있는 함축된 코드를 구현할 수 있는지 잘 알려줌
+
+### 10.4.3. 스프링 통합
+- **스프링 통합**(Spring Integration)
+  - 유명한 엔터프라이즈 통합 패턴을 지원할 수 있도록
+  - **의존성 주입**에 기반한 **스프링 프로그래밍 모델**을 확장
+- **스프링 통합의 목표**
+  - 복잡한 엔터프라이즈 통합 솔루션을 구현하는 **단순한 모델** 제공
+  - **비동기**, **메세지 주도 아키텍처**를 쉽게 적용할 수 있도록 도움
+- 스프링 기반 어플리케이션 내의 **경량의 원격, 메세징, 스케줄링**을 지원
+- `Spring XML`설정 파일 기반에도, 이들 기원을 지원
+- 스프링 통합은 `Endpoint, Pollers, Channel interceptors`등
+  - **메세지 기반 어플리케이션**에 필요한 **공통 패턴**을 모두 구현
+- 가독성이 높아지도록 **Endpoint DSL**에서 **동사**로 구현하며
+  - 여러 **Endpoint**를 **한 개 이상의 메세지 흐름**으로 조합하여 통합 과정 구성
+
+#### CODE.10.19. 스프링 통합 DSL을 이용해 스프링 통합 흐름 설정하기
+```java
+@Configuration
+@EnableIntegration
+public class MyConfiguration {
+
+  @Bean
+  public MessageSource<?> integerMessageSource() {
+    MethodInvokingMessageSource source =
+      new MethodInvokingMessageSource(); // 호출시 AtomicInteger를 증가시키는 새 MessageSource 생성
+    source.setObject(new AtomicInteger());
+    source.setMethodName("getAndIncrement");
+    return source;
+  }
+
+  @Bean
+  public DirectChannel inputChannel() {
+    return new DirectChannel(); // MessageSource에서 도착하는 데이터를 나르는 채널
+  }
+
+  @Bean
+  public IntegerationFlow myFlow() {
+    return IntegerationFlows
+            .from(this.integerMessageSource(), // 기존에 정의한 MessageSource를 IntegrationFlow의 입력으로 사용
+                  c -> c.poller(Pollers.fixedRate(10))) // MessageSource를 폴링하면서 MessageSource가 나르는 데이터를 가져옴
+            .channel(this.inputChannel())
+            .filter((Integer p) -> p % 2 == 0) // 짝수만 거름
+            .transform(Object::toString) // MessageSource에서 가져온 정수를 문자열로 변환
+            .channel(MessageChannels.queue("queueChannel")) // queueChannel을 IntegrationFlow의 결과로 설정
+            .get(); // IntegrationFlow 만들기를 끝나고 반환
+  }
+}
+```
+- `myFlow`는 `intergrationFlow`를 만듦
+- 메서드 체인 패턴을 구현하는 `IntegrationFlows`클래스가 제공하는 유연한 **빌더** 사용
+- 그리고 결과 플로는 **고정된 속도**로 `MessageSource`를 **폴링**
+  - 일련의 정수 제공
+- 이후 짝수만 거른다음, 문자열로 최종 변환
+- 이후 `java 8 Stream API`와 비슷한 방법으로 **출력 채널**에 전달
+- `inputChannel`의 이름만 알고 있다면,
+  - 이 API를 활용해 플로 내 모든 **컴포넌트**로 메세지 전달 가능
+- 예시
+  ```java
+  @Bean
+  public IntegrationFlow myFow() {
+    return flow -> flow.filter((Integer p) -> p % 2 == 0)
+                        .transform(Object::toString)
+                        .handle(System.out::println);
+  }
+  ```
+- 스프링 통합 DSL에서 가장 널리 사용하는 패턴은 **메서드 체인**
+- 이 패턴은 `IntegrationFlow` 빌더의 주오 목표인
+  - 전달되는 메세지 흐름을 만들고 **데이터를 변환**하는 기능에 적합
+- 단, **최상위 수준의 객체**를 만들 때(그리고 내부의 복잡한 `메서드 인수`에도)
+  - **함수 시퀀싱**과 **람다 표현식**을 사용
+
+## 10.5. 마치며
+- `DSL`의 주요 기능은 **개발자**와 **도메인 전문가** 사이의 간격을 좁히는 것
+- `DSL`은 크게 아래와 같이 구분
+  - **내부적 DSL**(DSL이 사용될 어플리케이션을 **개발한 언어를 그대로 사용**)
+    - 개발 노력이 적게 듦
+    - 호스팅 언어의 **문법 제약**
+  - **외부적 DSL**(**직접 언어 설계**)
+    - 높은 유연성
+    - 구현하기 어려움
+- JVM에서 이용할 수 있는 `scala, groovy`등의 다른 언어로 **다중 DSL**개발 가능
+  - 자바보다 유연, 간결
+  - 단, 자바와 통합하려면 **빌도 과정이 복잡**하며 **자바와의 상호 호환성 문제** 발생 가능
+- 자바는 **내부적 DSL**을 개발하는 언어로 적합하지 않음
+  - 장황함과 문법의 엄격함 때문
+  - 단, `java 8`의 **람다 표현식**과 **메서드 참조** 덕분에 상황이 많이 개선됨
+- 최신 자바는 **자체 API**에 작은 **DSL**을 제공
+- `Stream, Collector` 클래스 등에서 제공하는 **작은 DSL**
+  - 특히 **컬렉션 데이터**의 `정렬, 필터링, 변환, 그룹화`에 유용
+- 자바로 DSL 구현시, **메서드 체인**, **중첩 함수**, **함수 시퀀싱**등의 세가지 패턴 존재
+  - 각각 장단점이 있으나, **모든 기법을 한 개의 DSL의 합쳐 장점만 누리기도 가능**
+- 많은 java framework와 라이브러리를 DSL를 통해 이용할 수 있음
+  - `JOOQ`: SQL 매핑도구
+  - `Cucumber`: BDD Framework
+  - `Spring Integration`: 엔터프라이즈 통합 패턴 구현
