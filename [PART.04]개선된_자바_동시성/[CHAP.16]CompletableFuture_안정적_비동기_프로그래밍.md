@@ -70,3 +70,95 @@ try {
 - 주로 `I/O System Programming`에서 이와같은 방식으로 동작 수행
   - **계산 동작**을 수행하는 동안 **비동기적**으로 **디스크 접근**을 수행
   - 더 이상 수행할 동작이 없으면 **디스크 블록**이 **메모리**로 로딩될때까지 기다림
+
+## 16.2. 비동기 API 구현
+- 최저가격 어플리케이션을 구현하기 위해
+  - 먼저 각각의 상점에 제공하는 API 부터 정의
+- 제품명에 해당하는 가격 반환 메서드
+  ```java
+  public class Shop {
+    public double getPrice(String product) {
+      // 구현 필요
+    }
+  }
+  ```
+  - 상점의 db를 이용하여 가격 정보를 얻는 동시에
+    - 다른 외부 서비스에도 접근 필요
+- 이후 오래 걸리는 작업을 `delay`라는 메서드로 대체
+
+#### CODE.16.2. 1초 지연을 흉내 내는 메서드
+```java
+public static void delay() {
+  try {
+    Thread.sleep(1000L);
+  } catch (InterruptedException e) {
+    throw new RuntimeException(e);
+  }
+}
+```
+- 이후 임의의 계산값을 반환하도록 `getPrice` 구현 가능
+
+#### CODE.16.3. getPrice 메서드의 지연 흉내 내기
+```java
+public double getPrice(String product) {
+  return calculatePrice(product);
+}
+
+private double calculatePrice(String product) {
+  delay();
+  return random.nextDouble() * product.charAt(0) + product.charAt(1);
+}
+```
+- 사용자가 이 API를 호출하면,
+  - **비동기 동작**이 완료될 때까지 1초 블럭
+- 비동기 API를 만들기로
+
+
+### 16.2.1. 동기 메서드를 비동기 메서드로 변환
+- 동기 메서드 `getPrice`를 **비동기 메서드**로 변환하려면
+  - 이름과 반환값 변경 필요
+    ```java
+    public Future<Double> getPriceAsync(String product) { ... }
+    ```
+- `Future`는 결과값의 핸들일 뿐이며,
+  - 계산이 완료되면 `get`으로 결과를 얻을 수 있음
+
+#### CODE.16.4. getPriceAsync 메서드 구혀
+```java
+public Future<Double> getPriceAsync(String product) {
+  CompletableFuture<Double> futurePrice = new CompletableFuture<>(); // 계산 결과를 포함할 CompletableFuture를 생성
+  new Thread( () -> {
+    double price = calculatePrice(product); // 다른 스레드에서 비동기적으로 계산 수행
+    futurePrice.complete(price); // 오랜 시간이 걸리는 계산이 완료되면, Future에 값 설정
+  }).start();
+  return futurePrice; // 계산 결과과 완료되길 기다리지 않고 Future 반환
+}
+```
+- 비동기 계산과 완료 결과를 포함하는 `CompletableFuture` 인스턴스 생성
+- 이후 실제 가격을 계산할 다른 스레드를 만든 다음,
+  - 오래 걸리는 계산 결과를 기다리지 않고
+  - 결과를 포함할 `Future` 인스턴스를 **바로 반환**
+- 요청한 제품의 가격 정보가 도착하면 `complete` 메서드를 이용하여 `CompletableFuture`를 종료할 수 있음
+
+#### CODE.16.5. 비동기 API의 사용
+```java
+Shop shop = new Shop("BestShop");
+long start = System.nanoTime();
+Future<Double> futurePrice = shop.getPriceAsync("my favorite product"); // 상점에 제품가격 정보 요청
+long invocationTime ((System.nanoTime() - start) / 1_000_000);
+System.out.println("Invocation returned after " + invocationTime + "m secs");
+
+// 제품의 가격을 계산하는 동안
+doSomethingElse();
+
+// 다른 상점 검색 등 다른 작업 수행
+try {
+  double price = futurePrice.get(); // 가격 정보가 있으면 Future에서 값을 가져오고, 아니라면 Block
+  System.out.printf("Price is %.2f%n", price);
+} catch(Exception e) {
+  throw new RuntimeException(e);
+}
+
+long retrievalTime = ((System.nanoTime() - start) / 1_000_000);
+System.out.println("Price returned after " + retrievalTime + " msecs");
+```
